@@ -118,19 +118,27 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 				}
 			</script>
 		</head>
-		<body style="font-family: sans-serif; padding: 20px;">
-			<h2>Distributed Auction - Node %s</h2>
-			<p>Status: <span id="status"></span></p>
-			<p>Highest Bid: $<span id="highestBid"></span></p>
-			<p>Winner: <span id="winner"></span></p>
-			<hr/>
+		<body style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+			<div style="text-align: center; margin-bottom: 20px;">
+				<h1 style="color: #333; margin-bottom: 10px;">Distributed Auction System</h1>
+				<div style="display: inline-block; background-color: #007BFF; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 1.2em;">
+					Node %s
+				</div>
+				<hr style="margin-top: 20px; border: 0; border-top: 2px solid #eee;" />
+			</div>
+			<div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+				<p><strong>Status:</strong> <span id="status"></span></p>
+				<p><strong>Highest Bid:</strong> $<span id="highestBid"></span></p>
+				<p><strong>Winner:</strong> <span id="winner"></span></p>
+			</div>
+			
 			<form onsubmit="return submitBid(event)">
-				<label>Your Bid Amount:</label>
-				<input type="number" id="amount" name="amount" required>
-				<button type="submit">Place Bid</button>
+				<label style="font-weight: bold; display: block; margin-bottom: 5px;">Your Bid Amount:</label>
+				<input type="number" id="amount" name="amount" required style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; width: 100%%; box-sizing: border-box; margin-bottom: 10px;">
+				<button type="submit" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; width: 100%%;">Place Bid</button>
 			</form>
-			<p id="error" style="color: red;"></p>
-			<p id="success" style="color: green;"></p>
+			<p id="error" style="color: red; font-weight: bold;"></p>
+			<p id="success" style="color: green; font-weight: bold;"></p>
 		</body>
 		</html>
 	`, n.ID, n.ID)

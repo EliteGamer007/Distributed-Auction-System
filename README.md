@@ -11,141 +11,16 @@ The system must:
 The system simulates a simplified distributed transaction manager inspired by:
 •	Google Spanner
 •	Amazon Aurora
-________________________________________
-🏗 2️⃣ System Model
-•	Asynchronous distributed system
-•	Message-passing communication (Go RPC)
-•	Crash-stop failure model
-•	No shared memory
-•	Logical clock-based ordering
-•	Majority quorum (3/4)
-________________________________________
-🧠 3️⃣ Concepts Covered (Mapped to Syllabus)
-________________________________________
-🔹 A. Models of Computation
-✔ Shared-nothing architecture
-✔ Message-passing system
-✔ Asynchronous system behavior
-✔ RPC-based communication
-________________________________________
-🔹 B. Logical Time & Event Ordering
-Implemented using:
-•	Lamport Logical Clocks
-•	Timestamped messages
-•	Total ordering of bids
-Purpose:
-•	Resolve simultaneous bids
-•	Maintain consistent event ordering
-________________________________________
-🔹 C. Distributed Mutual Exclusion
-Algorithm used:
-•	Ricart–Agrawala
-Used to:
-•	Prevent simultaneous bid processing
-•	Ensure one transaction enters commit phase at a time
-Demonstrates:
-•	Fairness
-•	No centralized locking
-•	Deadlock-free protocol
-________________________________________
-🔹 D. Leader Election
-Algorithm used:
-•	Bully Algorithm
-Used to:
-•	Elect coordinator node
-•	Replace failed leader
-•	Maintain availability
-Demonstrates:
-•	Failure detection
-•	Re-election
-•	Liveness guarantee
-________________________________________
-🔹 E. Consensus & Agreement Problem
-Consensus style:
-•	Majority quorum-based agreement
-Implementation:
-•	Mini Two-Phase Commit
-•	Voting phase
-•	Commit/Abort decision
-Demonstrates:
-•	Agreement problem
-•	Quorum logic
-•	Strong consistency model
-________________________________________
-🔹 F. Commit Protocol
-Two-Phase Commit (2PC):
-Phase 1: PREPARE (Voting)
-Phase 2: COMMIT or ABORT
-Demonstrates:
-•	Atomicity
-•	Consistency
-•	Blocking problem of 2PC
-________________________________________
-🔹 G. Fault Tolerance
-Implemented using:
-✔ Crash-stop model
-✔ Leader re-election
-✔ Transaction logs
-✔ Recovery from checkpoint
-✔ Timeout detection
-Failure Scenarios Handled:
-•	Leader crash before commit
-•	Participant crash during voting
-•	Network delay simulation
-________________________________________
-🔹 H. Coordinated Checkpointing
-Mechanism:
-•	Leader initiates global checkpoint
-•	All nodes save:
-o	Highest bid
-o	Bidder
-o	Logical clock
-o	Pending transactions
-Checkpoint ensures:
-•	Consistent recovery state
-•	No orphan processes
-•	No inconsistent rollbacks
-Demonstrates:
-•	Coordinated checkpoint protocol
-•	Recovery model
-•	Consistent global state
-________________________________________
-🔹 I. Termination Detection
-After commit:
-•	Leader waits for ACK from all participants
-•	Once all ACK received → transaction considered globally terminated
-Demonstrates:
-•	Distributed termination detection
-•	Completion guarantees
-________________________________________
-🔹 J. Replica Management & Consistency
-•	All nodes maintain replicated auction state
-•	Commit only on majority agreement
-•	Strong consistency model
-Consistency Type:
-•	Linearizable updates via quorum commit
-________________________________________
-🔹 K. Concurrency Control
-•	Mutual exclusion ensures serializability
-•	Logical clock ordering ensures deterministic processing
-Equivalent to:
-•	Strict serializable execution
-________________________________________
-🔹 L. Fault Recovery
-Upon restart:
-1.	Load checkpoint
-2.	Rejoin cluster
-3.	Sync with leader
-4.	Resume normal operation
-Demonstrates:
-•	Recovery protocol
-•	State reconciliation
-________________________________________
-🔹 M. Cloud & Distributed System Concepts
-•	Cluster-style architecture
-•	Coordinator-based transaction manager
-•	Similar to distributed DB transaction layer
-Conceptually inspired by:
-•	Google Spanner
-•	Amazon Aurora
 
+HOW TO RUN FOR DUMMIES(Not Vishnu):
+1. Open 4 cmd prompts
+2. Run .\auction_node.exe --id Node1 --port 8001 --peers localhost:8002,localhost:8003,localhost:8004
+3. Run .\auction_node.exe --id Node2 --port 8002 --peers localhost:8001,localhost:8003,localhost:8004
+4. Run .\auction_node.exe --id Node3 --port 8003 --peers localhost:8001,localhost:8002,localhost:8004
+5. Run .\auction_node.exe --id Node4 --port 8004 --peers localhost:8001,localhost:8002,localhost:8003
+
+Open your browser and navigate to the UI for any of the nodes:
+Node 1: http://localhost:8001
+Node 2: http://localhost:8002
+Node 3: http://localhost:8003
+Node 4: http://localhost:8004
