@@ -1,6 +1,7 @@
 package node
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -55,35 +56,84 @@ func (n *Node) Start() {
 	// Minimal UI endpoints
 	mux.HandleFunc("/", n.handleUI)
 	mux.HandleFunc("/bid", n.handleBidRequest)
+	mux.HandleFunc("/state", n.handleStateRequest)
 
 	go http.Serve(listener, mux)
 	log.Printf("Node %s listening on %s (UI at http://%s)\n", n.ID, n.Address, n.Address)
 }
 
 func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
-	n.State.mu.Lock()
-	highestBid := n.State.HighestBid
-	winner := n.State.Winner
-	active := n.State.Active
-	n.State.mu.Unlock()
-
 	html := fmt.Sprintf(`
 		<html>
-		<head><title>Node %s Auction</title></head>
+		<head>
+			<title>Node %s Auction</title>
+			<script>
+				async function fetchState() {
+					try {
+						let res = await fetch('/state');
+						let data = await res.json();
+						document.getElementById('status').innerText = data.active;
+						document.getElementById('highestBid').innerText = data.highestBid;
+						document.getElementById('winner').innerText = data.winner;
+					} catch (e) {
+						console.error("Error fetching state:", e);
+					}
+				}
+				setInterval(fetchState, 1000);
+				window.onload = fetchState;
+
+				async function submitBid(e) {
+					e.preventDefault();
+					let amount = document.getElementById('amount').value;
+					let currentBid = parseInt(document.getElementById('highestBid').innerText) || 0;
+					let errorEl = document.getElementById('error');
+					let successEl = document.getElementById('success');
+					
+					errorEl.innerText = '';
+					successEl.innerText = '';
+
+					if (parseInt(amount) <= currentBid) {
+						errorEl.innerText = 'Error: Bid must be higher than the current winning bid of $' + currentBid;
+						return false;
+					}
+
+					let formData = new URLSearchParams();
+					formData.append('amount', amount);
+
+					let res = await fetch('/bid', {
+						method: 'POST',
+						body: formData,
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+					});
+
+					if (!res.ok) {
+						let text = await res.text();
+						errorEl.innerText = 'Error: ' + text;
+					} else {
+						successEl.innerText = 'Bid request submitted.';
+						document.getElementById('amount').value = '';
+						fetchState();
+					}
+					return false;
+				}
+			</script>
+		</head>
 		<body style="font-family: sans-serif; padding: 20px;">
 			<h2>Distributed Auction - Node %s</h2>
-			<p>Status: %t</p>
-			<p>Highest Bid: $%d</p>
-			<p>Winner: %s</p>
+			<p>Status: <span id="status"></span></p>
+			<p>Highest Bid: $<span id="highestBid"></span></p>
+			<p>Winner: <span id="winner"></span></p>
 			<hr/>
-			<form action="/bid" method="POST">
+			<form onsubmit="return submitBid(event)">
 				<label>Your Bid Amount:</label>
-				<input type="number" name="amount" required>
+				<input type="number" id="amount" name="amount" required>
 				<button type="submit">Place Bid</button>
 			</form>
+			<p id="error" style="color: red;"></p>
+			<p id="success" style="color: green;"></p>
 		</body>
 		</html>
-	`, n.ID, n.ID, active, highestBid, winner)
+	`, n.ID, n.ID)
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }
@@ -98,9 +148,30 @@ func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
 	var amount int
 	fmt.Sscanf(amountStr, "%d", &amount)
 
+	n.State.mu.Lock()
+	if amount <= n.State.HighestBid || !n.State.Active {
+		n.State.mu.Unlock()
+		http.Error(w, "Bid must be higher than current highest bid", http.StatusBadRequest)
+		return
+	}
+	n.State.mu.Unlock()
+
 	go n.PlaceBid(amount)
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Bid Accepted"))
+}
+
+func (n *Node) handleStateRequest(w http.ResponseWriter, r *http.Request) {
+	n.State.mu.Lock()
+	state := map[string]interface{}{
+		"highestBid": n.State.HighestBid,
+		"winner":     n.State.Winner,
+		"active":     n.State.Active,
+	}
+	n.State.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(state)
 }
 
 func (n *Node) PlaceBid(amount int) {
