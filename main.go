@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"distributed-auction/node"
@@ -26,8 +27,20 @@ func main() {
 	}
 
 	address := fmt.Sprintf("localhost:%s", *port)
-	n := node.NewNode(*id, address, peers)
+
+	// Derive rank from node ID (e.g. Node1 -> 1)
+	rankStr := strings.TrimPrefix(*id, "Node")
+	rank, err := strconv.Atoi(rankStr)
+	if err != nil {
+		fmt.Printf("Error: Node ID must be in format 'Node<number>', got '%s'\n", *id)
+		os.Exit(1)
+	}
+
+	n := node.NewNode(*id, address, peers, rank)
 	n.Start()
+
+	// Start bully leader monitoring
+	go n.MonitorLeader()
 
 	// Block forever
 	select {}

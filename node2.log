@@ -1,0 +1,13 @@
+2026/02/25 17:42:45 Node Node2 listening on localhost:8002 (UI at http://localhost:8002)
+2026/02/25 17:42:45 [Node2] Starting election (Rank: 2)
+2026/02/25 17:42:47 [Node2] No higher nodes, becoming leader!
+2026/02/25 17:43:07 [Node2] New leader elected: Node3
+2026/02/25 17:43:24 [Node2] New leader elected: Node4
+2026/02/25 17:45:09 [Node2] Failure detected: leader heartbeat timed out
+2026/02/25 17:45:09 [Node2] Starting election (Rank: 2)
+2026/02/25 17:45:09 [Node2] Starting election (Rank: 2)
+2026/02/25 17:45:11 [Node2] New leader elected: Node3
+2026/02/25 17:50:38 [Node2] Replying to Node3 immediately
+2026/02/25 17:50:38 [Node2] Received new highest bid: 50 by Node3
+2026/02/25 17:50:45 [Node2] Replying to Node1 immediately
+2026/02/25 17:50:45 [Node2] Received new highest bid: 19817 by Node1

@@ -12,6 +12,10 @@ The system simulates a simplified distributed transaction manager inspired by:
 •	Google Spanner
 •	Amazon Aurora
 
+### ⭐ New Features Added
+- **Leader Election via Bully Algorithm**: Ranks are parsed automatically from node IDs (e.g., Node4 > Node1). The cluster dynamically elects the highest-ranking node as the coordinator.
+- **Failure Detection**: The Leader sends periodic heartbeats. Followers detect leader failure via timeouts and automatically hold a re-election.
+
 HOW TO RUN FOR DUMMIES(Not Vishnu):
 1. Open 4 cmd prompts
 2. Run .\auction_node.exe --id Node1 --port 8001 --peers localhost:8002,localhost:8003,localhost:8004

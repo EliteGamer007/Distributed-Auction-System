@@ -1,0 +1,20 @@
+2026/02/25 17:43:05 Node Node3 listening on localhost:8003 (UI at http://localhost:8003)
+2026/02/25 17:43:05 [Node3] Starting election (Rank: 3)
+2026/02/25 17:43:07 [Node3] No higher nodes, becoming leader!
+2026/02/25 17:43:24 [Node3] New leader elected: Node4
+2026/02/25 17:45:09 [Node3] Failure detected: leader heartbeat timed out
+2026/02/25 17:45:09 [Node3] Starting election (Rank: 3)
+2026/02/25 17:45:09 [Node3] Starting election (Rank: 3)
+2026/02/25 17:45:09 [Node3] Starting election (Rank: 3)
+2026/02/25 17:45:09 [Node3] Starting election (Rank: 3)
+2026/02/25 17:45:11 [Node3] No higher nodes, becoming leader!
+2026/02/25 17:45:11 [Node3] No higher nodes, becoming leader!
+2026/02/25 17:45:11 [Node3] No higher nodes, becoming leader!
+2026/02/25 17:45:11 [Node3] No higher nodes, becoming leader!
+2026/02/25 17:50:38 [Node3] Requesting Critical Section at Time 1
+2026/02/25 17:50:38 [Node3] Failed to contact localhost:8004: dial tcp [::1]:8004: connectex: No connection could be made because the target machine actively refused it.
+2026/02/25 17:50:38 [Node3] Entered Critical Section
+2026/02/25 17:50:38 [Node3] Placed new highest bid 50
+2026/02/25 17:50:38 [Node3] Releasing Critical Section, replying to 0 deferred requests
+2026/02/25 17:50:45 [Node3] Replying to Node1 immediately
+2026/02/25 17:50:45 [Node3] Received new highest bid: 19817 by Node1

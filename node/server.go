@@ -7,36 +7,43 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"sync"
 )
 
 type Node struct {
-	ID      string
-	Address string
-	Peers   []string
-	State   *AuctionState
-	Clock   *LamportClock
-	RA      *RAManager
-	Client  *RPCClient
+	ID            string
+	Address       string
+	Peers         []string
+	State         *AuctionState
+	Clock         *LamportClock
+	RA            *RAManager
+	Client        *RPCClient
+	Rank          int
+	Coordinator   string
+	ElectionMutex sync.Mutex
+	LeaderChan    chan bool // True for receiving heartbeat
 }
 
 type NodeRPC struct {
 	node *Node
 }
 
-func NewNode(id, address string, peers []string) *Node {
+func NewNode(id, address string, peers []string, rank int) *Node {
 	clock := &LamportClock{}
 	client := &RPCClient{}
 	ra := NewRAManager(id, peers, clock, client)
 	state := &AuctionState{Active: true}
 
 	return &Node{
-		ID:      id,
-		Address: address,
-		Peers:   peers,
-		State:   state,
-		Clock:   clock,
-		RA:      ra,
-		Client:  client,
+		ID:         id,
+		Address:    address,
+		Peers:      peers,
+		State:      state,
+		Clock:      clock,
+		RA:         ra,
+		Client:     client,
+		Rank:       rank,
+		LeaderChan: make(chan bool),
 	}
 }
 
