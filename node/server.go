@@ -71,17 +71,209 @@ func (n *Node) Start() {
 
 func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 	html := fmt.Sprintf(`
-		<html>
+		<!DOCTYPE html>
+		<html lang="en">
 		<head>
-			<title>Node %s Auction</title>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Auction Node %s</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com">
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+			<style>
+				:root {
+					--bg-color: #ffffff;
+					--text-color: #000000;
+					--accent-color: #1d1d1f;
+					--secondary-text: #86868b;
+					--card-bg: #f5f5f7;
+					--input-bg: rgba(0, 0, 0, 0.05);
+					--success: #00c853;
+					--error: #ff5252;
+					--transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+				}
+
+				@media (prefers-color-scheme: dark) {
+					:root {
+						--bg-color: #000000;
+						--text-color: #f5f5f7;
+						--accent-color: #ffffff;
+						--secondary-text: #86868b;
+						--card-bg: #1d1d1f;
+						--input-bg: rgba(255, 255, 255, 0.1);
+					}
+				}
+
+				* {
+					margin: 0;
+					padding: 0;
+					box-sizing: border-box;
+					font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+					-webkit-font-smoothing: antialiased;
+				}
+
+				body {
+					background-color: var(--bg-color);
+					color: var(--text-color);
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					min-height: 100vh;
+					padding: 20px;
+					transition: var(--transition);
+				}
+
+				.container {
+					width: 100%%;
+					max-width: 440px;
+					animation: fadeIn 0.8s ease-out;
+				}
+
+				@keyframes fadeIn {
+					from { opacity: 0; transform: translateY(20px); }
+					to { opacity: 1; transform: translateY(0); }
+				}
+
+				header {
+					text-align: center;
+					margin-bottom: 40px;
+				}
+
+				h1 {
+					font-size: 2.4rem;
+					font-weight: 600;
+					letter-spacing: -0.02em;
+					margin-bottom: 8px;
+				}
+
+				.node-badge {
+					display: inline-block;
+					font-size: 0.9rem;
+					font-weight: 500;
+					color: var(--secondary-text);
+					text-transform: uppercase;
+					letter-spacing: 0.1em;
+				}
+
+				.card {
+					background-color: var(--card-bg);
+					border-radius: 28px;
+					padding: 32px;
+					box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+					margin-bottom: 24px;
+					transition: var(--transition);
+				}
+
+				.stat-group {
+					margin-bottom: 24px;
+				}
+
+				.stat-label {
+					font-size: 0.85rem;
+					font-weight: 500;
+					color: var(--secondary-text);
+					margin-bottom: 4px;
+				}
+
+				.stat-value {
+					font-size: 1.8rem;
+					font-weight: 600;
+					color: var(--text-color);
+				}
+
+				.status-dot {
+					display: inline-block;
+					width: 8px;
+					height: 8px;
+					border-radius: 50%%;
+					margin-right: 8px;
+					background-color: var(--success);
+				}
+
+				.status-text {
+					font-size: 1rem;
+					font-weight: 500;
+				}
+
+				form {
+					display: flex;
+					flex-direction: column;
+					gap: 16px;
+				}
+
+				.input-group {
+					position: relative;
+				}
+
+				input[type="number"] {
+					width: 100%%;
+					padding: 16px 20px;
+					border-radius: 16px;
+					border: none;
+					background-color: var(--input-bg);
+					color: var(--text-color);
+					font-size: 1.1rem;
+					font-weight: 500;
+					outline: none;
+					transition: var(--transition);
+				}
+
+				input[type="number"]:focus {
+					background-color: var(--bg-color);
+					box-shadow: 0 0 0 2px var(--accent-color);
+				}
+
+				button {
+					width: 100%%;
+					padding: 18px;
+					border-radius: 16px;
+					border: none;
+					background-color: var(--accent-color);
+					color: var(--bg-color);
+					font-size: 1.1rem;
+					font-weight: 600;
+					cursor: pointer;
+					transition: var(--transition);
+				}
+
+				button:hover {
+					transform: scale(1.02);
+					opacity: 0.9;
+				}
+
+				button:active {
+					transform: scale(0.98);
+				}
+
+				#feedback {
+					margin-top: 16px;
+					text-align: center;
+					font-size: 0.9rem;
+					font-weight: 500;
+					min-height: 20px;
+				}
+
+				.error { color: var(--error); }
+				.success { color: var(--success); }
+
+				/* Chrome, Safari, Edge, Opera */
+				input::-webkit-outer-spin-button,
+				input::-webkit-inner-spin-button {
+					-webkit-appearance: none;
+					margin: 0;
+				}
+			</style>
 			<script>
 				async function fetchState() {
 					try {
 						let res = await fetch('/state');
 						let data = await res.json();
-						document.getElementById('status').innerText = data.active;
+						document.getElementById('status').innerText = data.active ? 'Active' : 'Ended';
 						document.getElementById('highestBid').innerText = data.highestBid;
-						document.getElementById('winner').innerText = data.winner;
+						document.getElementById('winner').innerText = data.winner || 'No bids yet';
+						
+						const statusDot = document.querySelector('.status-dot');
+						statusDot.style.backgroundColor = data.active ? 'var(--success)' : 'var(--error)';
 					} catch (e) {
 						console.error("Error fetching state:", e);
 					}
@@ -93,62 +285,80 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 					e.preventDefault();
 					let amount = document.getElementById('amount').value;
 					let currentBid = parseInt(document.getElementById('highestBid').innerText) || 0;
-					let errorEl = document.getElementById('error');
-					let successEl = document.getElementById('success');
+					let feedback = document.getElementById('feedback');
 					
-					errorEl.innerText = '';
-					successEl.innerText = '';
+					feedback.className = '';
+					feedback.innerText = 'Submitting...';
 
 					if (parseInt(amount) <= currentBid) {
-						errorEl.innerText = 'Error: Bid must be higher than the current winning bid of $' + currentBid;
+						feedback.innerText = 'Bid must be higher than current bid ($' + currentBid + ')';
+						feedback.className = 'error';
 						return false;
 					}
 
 					let formData = new URLSearchParams();
 					formData.append('amount', amount);
 
-					let res = await fetch('/bid', {
-						method: 'POST',
-						body: formData,
-						headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-					});
+					try {
+						let res = await fetch('/bid', {
+							method: 'POST',
+							body: formData,
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+						});
 
-					if (!res.ok) {
-						let text = await res.text();
-						errorEl.innerText = 'Error: ' + text;
-					} else {
-						successEl.innerText = 'Bid request submitted.';
-						document.getElementById('amount').value = '';
-						fetchState();
+						if (!res.ok) {
+							let text = await res.text();
+							feedback.innerText = text;
+							feedback.className = 'error';
+						} else {
+							feedback.innerText = 'Success! Bid placed.';
+							feedback.className = 'success';
+							document.getElementById('amount').value = '';
+							fetchState();
+							setTimeout(() => { feedback.innerText = ''; }, 3000);
+						}
+					} catch (e) {
+						feedback.innerText = 'Network error. Try again.';
+						feedback.className = 'error';
 					}
 					return false;
 				}
 			</script>
 		</head>
-		<body style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-			<div style="text-align: center; margin-bottom: 20px;">
-				<h1 style="color: #333; margin-bottom: 10px;">Distributed Auction System</h1>
-				<div style="display: inline-block; background-color: #007BFF; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 1.2em;">
-					Node %s
+		<body>
+			<div class="container">
+				<header>
+					<span class="node-badge">Distributed Node %s</span>
+					<h1>Auction</h1>
+				</header>
+
+				<div class="card">
+					<div class="stat-group">
+						<div class="stat-label">CURRENT HIGHEST BID</div>
+						<div class="stat-value">$<span id="highestBid">0</span></div>
+					</div>
+					<div class="stat-group">
+						<div class="stat-label">WINNING BIDDER</div>
+						<div class="stat-value" id="winner" style="font-size: 1.2rem; color: var(--secondary-text);">None</div>
+					</div>
+					<div class="status-box">
+						<span class="status-dot"></span>
+						<span class="status-text" id="status">Active</span>
+					</div>
 				</div>
-				<hr style="margin-top: 20px; border: 0; border-top: 2px solid #eee;" />
+
+				<form onsubmit="return submitBid(event)">
+					<div class="input-group">
+						<input type="number" id="amount" name="amount" placeholder="Enter bid amount" required autocomplete="off">
+					</div>
+					<button type="submit">Place Bid</button>
+				</form>
+				<div id="feedback"></div>
 			</div>
-			<div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-				<p><strong>Status:</strong> <span id="status"></span></p>
-				<p><strong>Highest Bid:</strong> $<span id="highestBid"></span></p>
-				<p><strong>Winner:</strong> <span id="winner"></span></p>
-			</div>
-			
-			<form onsubmit="return submitBid(event)">
-				<label style="font-weight: bold; display: block; margin-bottom: 5px;">Your Bid Amount:</label>
-				<input type="number" id="amount" name="amount" required style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; width: 100%%; box-sizing: border-box; margin-bottom: 10px;">
-				<button type="submit" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; width: 100%%;">Place Bid</button>
-			</form>
-			<p id="error" style="color: red; font-weight: bold;"></p>
-			<p id="success" style="color: green; font-weight: bold;"></p>
 		</body>
 		</html>
 	`, n.ID, n.ID)
+
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }
