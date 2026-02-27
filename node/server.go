@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -22,6 +24,8 @@ type Node struct {
 	Coordinator   string
 	ElectionMutex sync.Mutex
 	LeaderChan    chan bool // True for receiving heartbeat
+	TxnMutex      sync.Mutex
+	PendingTxns   map[string]BidArgs
 }
 
 type NodeRPC struct {
@@ -35,22 +39,23 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 	state := &AuctionState{Active: true}
 
 	return &Node{
-		ID:         id,
-		Address:    address,
-		Peers:      peers,
-		State:      state,
-		Clock:      clock,
-		RA:         ra,
-		Client:     client,
-		Rank:       rank,
-		LeaderChan: make(chan bool),
+		ID:          id,
+		Address:     address,
+		Peers:       peers,
+		State:       state,
+		Clock:       clock,
+		RA:          ra,
+		Client:      client,
+		Rank:        rank,
+		LeaderChan:  make(chan bool),
+		PendingTxns: map[string]BidArgs{},
 	}
 }
 
 func (n *Node) Start() {
 	rpcServer := &NodeRPC{node: n}
 	server := rpc.NewServer()
-	server.Register(rpcServer)
+	_ = server.Register(rpcServer)
 
 	listener, err := net.Listen("tcp", n.Address)
 	if err != nil {
@@ -60,12 +65,15 @@ func (n *Node) Start() {
 	mux := http.NewServeMux()
 	mux.Handle(rpc.DefaultRPCPath, server)
 
-	// Minimal UI endpoints
 	mux.HandleFunc("/", n.handleUI)
 	mux.HandleFunc("/bid", n.handleBidRequest)
 	mux.HandleFunc("/state", n.handleStateRequest)
 
-	go http.Serve(listener, mux)
+	go func() {
+		if err := http.Serve(listener, mux); err != nil {
+			log.Printf("HTTP server error on %s: %v", n.Address, err)
+		}
+	}()
 	log.Printf("Node %s listening on %s (UI at http://%s)\n", n.ID, n.Address, n.Address)
 }
 
@@ -256,7 +264,6 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 				.error { color: var(--error); }
 				.success { color: var(--success); }
 
-				/* Chrome, Safari, Edge, Opera */
 				input::-webkit-outer-spin-button,
 				input::-webkit-inner-spin-button {
 					-webkit-appearance: none;
@@ -271,11 +278,10 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 						document.getElementById('status').innerText = data.active ? 'Active' : 'Ended';
 						document.getElementById('highestBid').innerText = data.highestBid;
 						document.getElementById('winner').innerText = data.winner || 'No bids yet';
-						
 						const statusDot = document.querySelector('.status-dot');
 						statusDot.style.backgroundColor = data.active ? 'var(--success)' : 'var(--error)';
 					} catch (e) {
-						console.error("Error fetching state:", e);
+						console.error('Error fetching state:', e);
 					}
 				}
 				setInterval(fetchState, 1000);
@@ -286,7 +292,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 					let amount = document.getElementById('amount').value;
 					let currentBid = parseInt(document.getElementById('highestBid').innerText) || 0;
 					let feedback = document.getElementById('feedback');
-					
+
 					feedback.className = '';
 					feedback.innerText = 'Submitting...';
 
@@ -311,7 +317,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 							feedback.innerText = text;
 							feedback.className = 'error';
 						} else {
-							feedback.innerText = 'Success! Bid placed.';
+							feedback.innerText = await res.text();
 							feedback.className = 'success';
 							document.getElementById('amount').value = '';
 							fetchState();
@@ -360,7 +366,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 	`, n.ID, n.ID)
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }
 
 func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
@@ -368,68 +374,234 @@ func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.ParseForm()
-	amountStr := r.FormValue("amount")
-	var amount int
-	fmt.Sscanf(amountStr, "%d", &amount)
-
-	n.State.mu.Lock()
-	if amount <= n.State.HighestBid || !n.State.Active {
-		n.State.mu.Unlock()
-		http.Error(w, "Bid must be higher than current highest bid", http.StatusBadRequest)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form request", http.StatusBadRequest)
 		return
 	}
-	n.State.mu.Unlock()
 
-	go n.PlaceBid(amount)
+	amountStr := r.FormValue("amount")
+	var amount int
+	if _, err := fmt.Sscanf(amountStr, "%d", &amount); err != nil || amount <= 0 {
+		http.Error(w, "Invalid bid amount", http.StatusBadRequest)
+		return
+	}
+
+	coordinatorAddress, isLocalCoordinator := n.getCoordinatorAddress()
+	if coordinatorAddress != "" && !isLocalCoordinator {
+		var reply CoordinatorBidReply
+		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitBidToCoordinator", BidArgs{Amount: amount, Bidder: n.ID}, &reply)
+		if err != nil {
+			http.Error(w, "Leader unavailable; retry shortly", http.StatusServiceUnavailable)
+			return
+		}
+		if !reply.Accepted {
+			http.Error(w, reply.Message, http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(reply.Message))
+		return
+	}
+
+	accepted, message := n.ProposeBid(amount, n.ID)
+	if !accepted {
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Bid Accepted"))
+	_, _ = w.Write([]byte(message))
 }
 
 func (n *Node) handleStateRequest(w http.ResponseWriter, r *http.Request) {
+	n.ElectionMutex.Lock()
+	coordinator := n.Coordinator
+	n.ElectionMutex.Unlock()
+
 	n.State.mu.Lock()
 	state := map[string]interface{}{
 		"highestBid": n.State.HighestBid,
 		"winner":     n.State.Winner,
 		"active":     n.State.Active,
+		"leader":     coordinator,
 	}
 	n.State.mu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(state)
+	_ = json.NewEncoder(w).Encode(state)
 }
 
-func (n *Node) PlaceBid(amount int) {
-	n.State.mu.Lock()
-	if amount <= n.State.HighestBid || !n.State.Active {
-		n.State.mu.Unlock()
-		return
+func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
+	txnBid := BidArgs{Amount: amount, Bidder: bidder}
+	if !n.canPrepareBid(txnBid) {
+		return false, "Bid must be higher than current highest bid"
 	}
-	n.State.mu.Unlock()
 
-	// Mutual Exclusion to place bid
 	n.RA.RequestCS()
 	defer n.RA.ReleaseCS()
 
-	// Double check
-	n.State.mu.Lock()
-	if amount <= n.State.HighestBid || !n.State.Active {
-		n.State.mu.Unlock()
-		return
+	if !n.canPrepareBid(txnBid) {
+		return false, "Bid became stale during coordination"
 	}
-	n.State.HighestBid = amount
-	n.State.Winner = n.ID
-	n.State.mu.Unlock()
 
-	log.Printf("[%s] Placed new highest bid %d\n", n.ID, amount)
+	txnID := fmt.Sprintf("%s-%d", n.ID, n.Clock.Tick())
+	quorum := (len(n.Peers)+1)/2 + 1
+	votes := 1
 
-	// Propagate to peers
-	for _, peer := range n.RA.Peers {
+	n.rememberPendingTxn(txnID, txnBid)
+
+	type voteResult struct{ yes bool }
+	voteCh := make(chan voteResult, len(n.Peers))
+
+	for _, peer := range n.Peers {
 		go func(p string) {
-			var reply bool
-			n.Client.Call(p, "NodeRPC.HandleBid", BidArgs{Amount: amount, Bidder: n.ID}, &reply)
+			var vote PrepareReply
+			err := n.Client.Call(p, "NodeRPC.PrepareBid", PrepareArgs{TxnID: txnID, Bid: txnBid, Timestamp: n.Clock.Tick()}, &vote)
+			if err != nil {
+				voteCh <- voteResult{yes: false}
+				return
+			}
+			voteCh <- voteResult{yes: vote.Vote}
 		}(peer)
 	}
+
+	for i := 0; i < len(n.Peers); i++ {
+		if (<-voteCh).yes {
+			votes++
+		}
+	}
+
+	commit := votes >= quorum
+	n.applyDecision(txnID, commit, txnBid)
+
+	decision := DecisionArgs{TxnID: txnID, Commit: commit, Bid: txnBid, Leader: n.ID}
+	for _, peer := range n.Peers {
+		go func(p string) {
+			var ack bool
+			_ = n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
+		}(peer)
+	}
+
+	if !commit {
+		log.Printf("[%s] Transaction %s aborted (votes=%d, quorum=%d)\n", n.ID, txnID, votes, quorum)
+		return false, fmt.Sprintf("Bid aborted: quorum not reached (%d/%d)", votes, quorum)
+	}
+
+	log.Printf("[%s] Transaction %s committed bid=%d bidder=%s (votes=%d, quorum=%d)\n", n.ID, txnID, amount, bidder, votes, quorum)
+	return true, "Bid committed by quorum"
+}
+
+func (n *Node) canPrepareBid(bid BidArgs) bool {
+	n.State.mu.Lock()
+	defer n.State.mu.Unlock()
+	return n.State.Active && bid.Amount > n.State.HighestBid
+}
+
+func (n *Node) rememberPendingTxn(txnID string, bid BidArgs) {
+	n.TxnMutex.Lock()
+	n.PendingTxns[txnID] = bid
+	n.TxnMutex.Unlock()
+}
+
+func (n *Node) applyDecision(txnID string, commit bool, fallbackBid BidArgs) {
+	n.TxnMutex.Lock()
+	bid, ok := n.PendingTxns[txnID]
+	if !ok {
+		bid = fallbackBid
+	}
+	delete(n.PendingTxns, txnID)
+	n.TxnMutex.Unlock()
+
+	if !commit {
+		return
+	}
+
+	n.State.mu.Lock()
+	if bid.Amount > n.State.HighestBid && n.State.Active {
+		n.State.HighestBid = bid.Amount
+		n.State.Winner = bid.Bidder
+	}
+	n.State.mu.Unlock()
+}
+
+func (n *Node) getCoordinatorAddress() (string, bool) {
+	n.ElectionMutex.Lock()
+	coordinatorID := n.Coordinator
+	n.ElectionMutex.Unlock()
+
+	if coordinatorID == "" || coordinatorID == n.ID {
+		return n.Address, true
+	}
+
+	rankStr := strings.TrimPrefix(coordinatorID, "Node")
+	rank, err := strconv.Atoi(rankStr)
+	if err != nil || rank <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("localhost:%d", 8000+rank), false
+}
+
+type BidArgs struct {
+	Amount int
+	Bidder string
+}
+
+type PrepareArgs struct {
+	TxnID     string
+	Bid       BidArgs
+	Timestamp int
+}
+
+type PrepareReply struct {
+	Vote   bool
+	Reason string
+}
+
+type DecisionArgs struct {
+	TxnID  string
+	Commit bool
+	Bid    BidArgs
+	Leader string
+}
+
+type CoordinatorBidReply struct {
+	Accepted bool
+	Message  string
+}
+
+func (rp *NodeRPC) SubmitBidToCoordinator(args BidArgs, reply *CoordinatorBidReply) error {
+	rp.node.ElectionMutex.Lock()
+	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	rp.node.ElectionMutex.Unlock()
+	if !isCoordinator {
+		reply.Accepted = false
+		reply.Message = "This node is not the coordinator"
+		return nil
+	}
+
+	accepted, message := rp.node.ProposeBid(args.Amount, args.Bidder)
+	reply.Accepted = accepted
+	reply.Message = message
+	return nil
+}
+
+func (rp *NodeRPC) PrepareBid(args PrepareArgs, reply *PrepareReply) error {
+	rp.node.Clock.Update(args.Timestamp)
+	if !rp.node.canPrepareBid(args.Bid) {
+		reply.Vote = false
+		reply.Reason = "bid not higher or auction inactive"
+		return nil
+	}
+	rp.node.rememberPendingTxn(args.TxnID, args.Bid)
+	reply.Vote = true
+	reply.Reason = "prepared"
+	return nil
+}
+
+func (rp *NodeRPC) DecideBid(args DecisionArgs, reply *bool) error {
+	rp.node.applyDecision(args.TxnID, args.Commit, args.Bid)
+	*reply = true
+	return nil
 }
 
 // RPC Methods
@@ -444,20 +616,15 @@ func (rp *NodeRPC) HandleRADeferredReply(args RAMessage, reply *bool) error {
 	return nil
 }
 
-type BidArgs struct {
-	Amount int
-	Bidder string
-}
-
+// Legacy propagation handler retained for backward compatibility.
 func (rp *NodeRPC) HandleBid(args BidArgs, reply *bool) error {
 	rp.node.State.mu.Lock()
-	defer rp.node.State.mu.Unlock()
-
-	if args.Amount > rp.node.State.HighestBid {
+	if args.Amount > rp.node.State.HighestBid && rp.node.State.Active {
 		rp.node.State.HighestBid = args.Amount
 		rp.node.State.Winner = args.Bidder
-		log.Printf("[%s] Received new highest bid: %d by %s\n", rp.node.ID, args.Amount, args.Bidder)
+		log.Printf("[%s] Legacy bid sync: %d by %s\n", rp.node.ID, args.Amount, args.Bidder)
 	}
+	rp.node.State.mu.Unlock()
 	*reply = true
 	return nil
 }
