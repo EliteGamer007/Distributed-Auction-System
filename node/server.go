@@ -10,6 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	voteWaitTimeout = 2500 * time.Millisecond
+	preparedTxnTTL  = 8 * time.Second
 )
 
 type Node struct {
@@ -25,7 +31,12 @@ type Node struct {
 	ElectionMutex sync.Mutex
 	LeaderChan    chan bool // True for receiving heartbeat
 	TxnMutex      sync.Mutex
-	PendingTxns   map[string]BidArgs
+	PendingTxns   map[string]PendingTxn
+}
+
+type PendingTxn struct {
+	Bid        BidArgs
+	PreparedAt time.Time
 }
 
 type NodeRPC struct {
@@ -48,7 +59,7 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 		Client:      client,
 		Rank:        rank,
 		LeaderChan:  make(chan bool),
-		PendingTxns: map[string]BidArgs{},
+		PendingTxns: map[string]PendingTxn{},
 	}
 }
 
@@ -74,6 +85,8 @@ func (n *Node) Start() {
 			log.Printf("HTTP server error on %s: %v", n.Address, err)
 		}
 	}()
+	go n.abortStalePreparedTxns()
+	go n.periodicStateSync()
 	log.Printf("Node %s listening on %s (UI at http://%s)\n", n.ID, n.Address, n.Address)
 }
 
@@ -465,9 +478,30 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 		}(peer)
 	}
 
-	for i := 0; i < len(n.Peers); i++ {
-		if (<-voteCh).yes {
-			votes++
+	pendingResponses := len(n.Peers)
+	voteTimer := time.NewTimer(voteWaitTimeout)
+	for pendingResponses > 0 {
+		if votes >= quorum {
+			break
+		}
+		if votes+pendingResponses < quorum {
+			break
+		}
+
+		select {
+		case result := <-voteCh:
+			pendingResponses--
+			if result.yes {
+				votes++
+			}
+		case <-voteTimer.C:
+			pendingResponses = 0
+		}
+	}
+	if !voteTimer.Stop() {
+		select {
+		case <-voteTimer.C:
+		default:
 		}
 	}
 
@@ -499,13 +533,14 @@ func (n *Node) canPrepareBid(bid BidArgs) bool {
 
 func (n *Node) rememberPendingTxn(txnID string, bid BidArgs) {
 	n.TxnMutex.Lock()
-	n.PendingTxns[txnID] = bid
+	n.PendingTxns[txnID] = PendingTxn{Bid: bid, PreparedAt: time.Now()}
 	n.TxnMutex.Unlock()
 }
 
 func (n *Node) applyDecision(txnID string, commit bool, fallbackBid BidArgs) {
 	n.TxnMutex.Lock()
-	bid, ok := n.PendingTxns[txnID]
+	pending, ok := n.PendingTxns[txnID]
+	bid := pending.Bid
 	if !ok {
 		bid = fallbackBid
 	}
@@ -524,6 +559,23 @@ func (n *Node) applyDecision(txnID string, commit bool, fallbackBid BidArgs) {
 	n.State.mu.Unlock()
 }
 
+func (n *Node) abortStalePreparedTxns() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		n.TxnMutex.Lock()
+		for txnID, pending := range n.PendingTxns {
+			if now.Sub(pending.PreparedAt) > preparedTxnTTL {
+				delete(n.PendingTxns, txnID)
+				log.Printf("[%s] Auto-aborted stale prepared transaction %s (2PC timeout)\n", n.ID, txnID)
+			}
+		}
+		n.TxnMutex.Unlock()
+	}
+}
+
 func (n *Node) getCoordinatorAddress() (string, bool) {
 	n.ElectionMutex.Lock()
 	coordinatorID := n.Coordinator
@@ -538,7 +590,40 @@ func (n *Node) getCoordinatorAddress() (string, bool) {
 	if err != nil || rank <= 0 {
 		return "", false
 	}
-	return fmt.Sprintf("localhost:%d", 8000+rank), false
+	coordinatorPort := 8000 + rank
+	portSuffix := fmt.Sprintf(":%d", coordinatorPort)
+	for _, peer := range n.Peers {
+		if strings.HasSuffix(peer, portSuffix) {
+			return peer, false
+		}
+	}
+	return fmt.Sprintf("localhost:%d", coordinatorPort), false
+}
+
+func (n *Node) periodicStateSync() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		coordinatorAddress, isLocalCoordinator := n.getCoordinatorAddress()
+		if isLocalCoordinator || coordinatorAddress == "" {
+			continue
+		}
+
+		var snapshot StateSnapshot
+		err := n.Client.Call(coordinatorAddress, "NodeRPC.GetAuctionState", EmptyArgs{}, &snapshot)
+		if err != nil {
+			continue
+		}
+
+		n.State.mu.Lock()
+		if snapshot.HighestBid > n.State.HighestBid {
+			n.State.HighestBid = snapshot.HighestBid
+			n.State.Winner = snapshot.Winner
+		}
+		n.State.Active = snapshot.Active
+		n.State.mu.Unlock()
+	}
 }
 
 type BidArgs struct {
@@ -567,6 +652,14 @@ type DecisionArgs struct {
 type CoordinatorBidReply struct {
 	Accepted bool
 	Message  string
+}
+
+type EmptyArgs struct{}
+
+type StateSnapshot struct {
+	HighestBid int
+	Winner     string
+	Active     bool
 }
 
 func (rp *NodeRPC) SubmitBidToCoordinator(args BidArgs, reply *CoordinatorBidReply) error {
@@ -601,6 +694,15 @@ func (rp *NodeRPC) PrepareBid(args PrepareArgs, reply *PrepareReply) error {
 func (rp *NodeRPC) DecideBid(args DecisionArgs, reply *bool) error {
 	rp.node.applyDecision(args.TxnID, args.Commit, args.Bid)
 	*reply = true
+	return nil
+}
+
+func (rp *NodeRPC) GetAuctionState(_ EmptyArgs, reply *StateSnapshot) error {
+	rp.node.State.mu.Lock()
+	reply.HighestBid = rp.node.State.HighestBid
+	reply.Winner = rp.node.State.Winner
+	reply.Active = rp.node.State.Active
+	rp.node.State.mu.Unlock()
 	return nil
 }
 

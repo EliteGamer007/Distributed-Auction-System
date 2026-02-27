@@ -12,6 +12,7 @@ import (
 
 func main() {
 	id := flag.String("id", "", "Node ID")
+	host := flag.String("host", "0.0.0.0", "Host/IP to bind on (use 0.0.0.0 for LAN)")
 	port := flag.String("port", "", "Port to listen on")
 	peersList := flag.String("peers", "", "Comma separated list of peer addresses (e.g. localhost:8081,localhost:8082)")
 	flag.Parse()
@@ -26,7 +27,7 @@ func main() {
 		peers = strings.Split(*peersList, ",")
 	}
 
-	address := fmt.Sprintf("localhost:%s", *port)
+	address := fmt.Sprintf("%s:%s", *host, *port)
 
 	// Derive rank from node ID (e.g. Node1 -> 1)
 	rankStr := strings.TrimPrefix(*id, "Node")
