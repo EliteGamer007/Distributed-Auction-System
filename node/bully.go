@@ -50,6 +50,9 @@ func (n *Node) StartElection() {
 
 		// Leader broadcasts heartbeats continuously
 		go n.BroadcastHeartbeats()
+
+		// Start / resume the item queue timer
+		go n.OnBecomeCoordinator()
 	}
 }
 
