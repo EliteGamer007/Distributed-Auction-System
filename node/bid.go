@@ -85,6 +85,8 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 
 	if commit {
 		go n.broadcastQueueState()
+		// Anti-snipe: if a bid lands with less than 15s left, extend the deadline.
+		n.maybeExtendDeadline()
 		log.Printf("[%s] Txn %s committed bid=%d bidder=%s\n", n.ID, txnID, amount, bidder)
 		return true, "Bid committed by quorum"
 	}

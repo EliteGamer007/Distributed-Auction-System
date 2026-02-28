@@ -11,13 +11,35 @@ import (
 // defaultItems returns the pre-seeded list of auction items.
 func defaultItems() []AuctionItem {
 	return []AuctionItem{
-		{ID: "item-1", Name: "Vintage Rolex Watch", Description: "1962 Submariner, excellent condition", Emoji: "⌚", StartingPrice: 500, DurationSec: 60},
-		{ID: "item-2", Name: "Oil Painting", Description: "Original 18th-century landscape on canvas", Emoji: "🖼️", StartingPrice: 300, DurationSec: 60},
-		{ID: "item-3", Name: "Limited Sneakers", Description: "Nike Air Jordan 1 OG, DS size 10", Emoji: "👟", StartingPrice: 200, DurationSec: 60},
-		{ID: "item-4", Name: "Gaming Laptop", Description: "ASUS ROG, RTX 4090, 32GB RAM", Emoji: "💻", StartingPrice: 1000, DurationSec: 60},
-		{ID: "item-5", Name: "Fender Guitar", Description: "1965 Fender Stratocaster, sunburst finish", Emoji: "🎸", StartingPrice: 800, DurationSec: 60},
-		{ID: "item-6", Name: "Rare Gold Coin", Description: "1920 St. Gaudens Double Eagle, MS65", Emoji: "🪙", StartingPrice: 1500, DurationSec: 60},
+		{ID: "item-1", Name: "Vintage Rolex Watch", Description: "1962 Submariner, excellent condition", Emoji: "⌚", StartingPrice: 500, DurationSec: 120},
+		{ID: "item-2", Name: "Oil Painting", Description: "Original 18th-century landscape on canvas", Emoji: "🖼️", StartingPrice: 300, DurationSec: 120},
+		{ID: "item-3", Name: "Limited Sneakers", Description: "Nike Air Jordan 1 OG, DS size 10", Emoji: "👟", StartingPrice: 200, DurationSec: 120},
+		{ID: "item-4", Name: "Gaming Laptop", Description: "ASUS ROG, RTX 4090, 32GB RAM", Emoji: "💻", StartingPrice: 1000, DurationSec: 120},
+		{ID: "item-5", Name: "Fender Guitar", Description: "1965 Fender Stratocaster, sunburst finish", Emoji: "🎸", StartingPrice: 800, DurationSec: 120},
+		{ID: "item-6", Name: "Rare Gold Coin", Description: "1920 St. Gaudens Double Eagle, MS65", Emoji: "🪙", StartingPrice: 1500, DurationSec: 120},
 	}
+}
+
+const antiSnipeWindow = int64(15) // seconds — reset timer if bid placed this close to deadline
+
+// maybeExtendDeadline resets the current item's deadline to antiSnipeWindow seconds
+// from now if a bid was placed within the anti-snipe window. Called by coordinator only.
+func (n *Node) maybeExtendDeadline() {
+	n.Queue.mu.Lock()
+	if n.Queue.CurrentItem == nil || !n.Queue.Active {
+		n.Queue.mu.Unlock()
+		return
+	}
+	remaining := n.Queue.DeadlineUnix - time.Now().Unix()
+	if remaining >= antiSnipeWindow {
+		n.Queue.mu.Unlock()
+		return
+	}
+	n.Queue.DeadlineUnix = time.Now().Unix() + antiSnipeWindow
+	log.Printf("[%s] ⏱  Anti-snipe: extended deadline by %ds (was %ds left)\n",
+		n.ID, antiSnipeWindow, remaining)
+	n.Queue.mu.Unlock()
+	n.broadcastQueueState()
 }
 
 // startNextItem is called only by the coordinator to advance the queue.
