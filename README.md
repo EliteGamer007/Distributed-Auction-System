@@ -1,3 +1,26 @@
+## Quick Start (Recommended)
+
+Use the single starter script to cleanly relaunch the full 4-node cluster:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_nodes.ps1
+```
+
+What this does automatically:
+- Stops old `auction_node.exe` / `distributed-auction.exe` processes
+- Preserves previous logs as `node1.last.log` ... `node4.last.log`
+- Deletes stale executables and rebuilds a fresh `auction_node.exe`
+- Starts all 4 nodes on ports `8001`-`8004`
+
+This avoids the common Windows lock issue during checkout/rebuild:
+`error: unable to unlink old 'auction_node.exe'`
+
+Open any node UI after startup:
+- http://localhost:8001
+- http://localhost:8002
+- http://localhost:8003
+- http://localhost:8004
+
 Problem Statement
 Design and implement a distributed online auction system running on 4 independent nodes (laptops) communicating via RPC in an asynchronous message-passing environment.
 The system must:
