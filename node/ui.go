@@ -156,6 +156,15 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     .result-bid { font-size: 0.85rem; font-weight: 700; color: var(--gold); white-space: nowrap; }
 
     .empty-state { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 12px 0; }
+
+    /* Checkpoint panel */
+    .cp-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .cp-row:last-child { border-bottom: none; }
+    .cp-key { font-size: 0.75rem; color: var(--muted); }
+    .cp-val { font-size: 0.78rem; font-weight: 600; }
+    .cp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%%; margin-right: 5px; background: var(--green); }
+    .cp-dot.stale { background: var(--yellow); }
+    .cp-dot.none { background: var(--muted); }
   </style>
 </head>
 <body>
@@ -211,6 +220,15 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     <div class="panel">
       <div class="panel-title">🏆 Sold</div>
       <div class="results-list" id="resultsList"><div class="empty-state">No items sold yet</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">💾 Checkpoint</div>
+      <div id="cpPanel">
+        <div class="cp-row"><span class="cp-key">Status</span><span class="cp-val" id="cpStatus"><span class="cp-dot none"></span>None</span></div>
+        <div class="cp-row"><span class="cp-key">Saved at</span><span class="cp-val" id="cpTime">—</span></div>
+        <div class="cp-row"><span class="cp-key">Lamport</span><span class="cp-val" id="cpLamport">—</span></div>
+        <div class="cp-row"><span class="cp-key">Results saved</span><span class="cp-val" id="cpResults">—</span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -351,8 +369,28 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     btn.disabled = false;
   }
 
+  async function fetchCheckpoint() {
+    try {
+      const res = await fetch('/checkpoint');
+      if (res.status === 404) {
+        document.getElementById('cpStatus').innerHTML = '<span class="cp-dot none"></span>None yet';
+        return;
+      }
+      const d = await res.json();
+      const savedAt = new Date(d.checkpointTime * 1000);
+      const ageS = Math.floor((Date.now() / 1000) - d.checkpointTime);
+      const fresh = ageS < 60;
+      document.getElementById('cpStatus').innerHTML = '<span class="cp-dot' + (fresh ? '' : ' stale') + '"></span>' + (fresh ? 'Fresh' : 'Stale (' + ageS + 's ago)');
+      document.getElementById('cpTime').textContent = savedAt.toLocaleTimeString();
+      document.getElementById('cpLamport').textContent = d.lamportStamp;
+      document.getElementById('cpResults').textContent = (d.results ? d.results.length : 0) + ' items';
+    } catch(e) { console.error('checkpoint fetch error', e); }
+  }
+
   setInterval(fetchState, 1000);
+  setInterval(fetchCheckpoint, 15000);
   fetchState();
+  fetchCheckpoint();
 </script>
 </body>
 </html>`, n.ID, n.ID)

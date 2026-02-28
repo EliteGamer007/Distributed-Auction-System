@@ -1,11 +1,12 @@
 package node
 
-// handlers.go — HTTP request handlers for /bid and /state endpoints.
+// handlers.go — HTTP request handlers for /bid, /state, and /checkpoint endpoints.
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 )
 
 func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
@@ -63,4 +64,19 @@ func (n *Node) handleStateRequest(w http.ResponseWriter, r *http.Request) {
 	snap := n.buildQueueSnapshot()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(snap)
+}
+
+// handleCheckpointRequest serves the raw checkpoint file for this node.
+func (n *Node) handleCheckpointRequest(w http.ResponseWriter, r *http.Request) {
+	b, err := os.ReadFile(checkpointPath(n.ID))
+	if os.IsNotExist(err) {
+		http.Error(w, "No checkpoint yet", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Could not read checkpoint", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(b)
 }

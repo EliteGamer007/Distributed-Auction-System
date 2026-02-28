@@ -34,6 +34,17 @@ type CoordinatorBidReply struct {
 
 type EmptyArgs struct{}
 
+type TakeCheckpointArgs struct {
+	InitiatorID string
+	LamportTime int
+}
+
+type TakeCheckpointReply struct {
+	OK           bool
+	LamportStamp int
+	Error        string
+}
+
 type QueueSnapshot struct {
 	CurrentItem       *AuctionItem
 	CurrentHighestBid int
@@ -108,6 +119,19 @@ func (rp *NodeRPC) HandleRARequest(args RAMessage, reply *bool) error {
 func (rp *NodeRPC) HandleRADeferredReply(args RAMessage, reply *bool) error {
 	rp.node.RA.HandleRAReply()
 	*reply = true
+	return nil
+}
+
+// TakeCheckpoint is called by the coordinator to ask this follower to save its state.
+func (rp *NodeRPC) TakeCheckpoint(args TakeCheckpointArgs, reply *TakeCheckpointReply) error {
+	rp.node.Clock.Update(args.LamportTime)
+	if err := rp.node.takeLocalCheckpoint(); err != nil {
+		reply.OK = false
+		reply.Error = err.Error()
+		return nil
+	}
+	reply.OK = true
+	reply.LamportStamp = rp.node.Clock.Get()
 	return nil
 }
 

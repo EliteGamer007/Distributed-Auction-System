@@ -50,14 +50,27 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 	client := &RPCClient{}
 	ra := NewRAManager(id, peers, clock, client)
 
-	items := defaultItems()
-	queue := &ItemQueueState{
-		Queue:  items[1:],
-		Active: true,
+	// Try to restore from a previously saved checkpoint.
+	var queue *ItemQueueState
+	if cp, err := loadCheckpoint(id); err != nil {
+		log.Printf("[%s] Warning: could not read checkpoint: %v\n", id, err)
+		queue = freshQueue()
+	} else if cp != nil {
+		log.Printf("[%s] 🔄 Restoring from checkpoint (lamport=%d, item=%v, results=%d)\n",
+			id, cp.LamportTime, itemName(cp.CurrentItem), len(cp.Results))
+		clock.Update(cp.LamportTime)
+		queue = &ItemQueueState{
+			CurrentItem:       cp.CurrentItem,
+			Queue:             cp.RemainingQueue,
+			Results:           cp.Results,
+			CurrentHighestBid: cp.CurrentHighestBid,
+			CurrentWinner:     cp.CurrentWinner,
+			DeadlineUnix:      cp.DeadlineUnix,
+			Active:            cp.Active,
+		}
+	} else {
+		queue = freshQueue()
 	}
-	first := items[0]
-	queue.CurrentItem = &first
-	queue.CurrentHighestBid = first.StartingPrice - 1
 
 	return &Node{
 		ID:          id,
@@ -71,6 +84,19 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 		LeaderChan:  make(chan bool),
 		PendingTxns: map[string]PendingTxn{},
 	}
+}
+
+// freshQueue initialises a brand-new queue from the default item seed.
+func freshQueue() *ItemQueueState {
+	items := defaultItems()
+	q := &ItemQueueState{
+		Queue:  items[1:],
+		Active: true,
+	}
+	first := items[0]
+	q.CurrentItem = &first
+	q.CurrentHighestBid = first.StartingPrice - 1
+	return q
 }
 
 func (n *Node) Start() {
@@ -88,6 +114,7 @@ func (n *Node) Start() {
 	mux.HandleFunc("/", n.handleUI)
 	mux.HandleFunc("/bid", n.handleBidRequest)
 	mux.HandleFunc("/state", n.handleStateRequest)
+	mux.HandleFunc("/checkpoint", n.handleCheckpointRequest)
 
 	go func() {
 		if err := http.Serve(listener, mux); err != nil {
@@ -96,6 +123,7 @@ func (n *Node) Start() {
 	}()
 	go n.abortStalePreparedTxns()
 	go n.periodicStateSync()
+	go n.runPeriodicCheckpointing()
 	log.Printf("Node %s listening on %s (UI at http://%s)\n", n.ID, n.Address, n.Address)
 }
 

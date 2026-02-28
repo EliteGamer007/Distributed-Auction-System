@@ -44,6 +44,7 @@ func (n *Node) startNextItem() {
 
 	log.Printf("[%s] Started auction for: %s (deadline in %ds)\n", n.ID, next.Name, next.DurationSec)
 	n.broadcastQueueState()
+	go n.initiateGlobalCheckpoint()
 	go n.runItemTimer(next.ID, n.Queue.DeadlineUnix)
 }
 
@@ -88,6 +89,8 @@ func (n *Node) finalizeCurrentItemLocked() {
 	n.Queue.Results = append(n.Queue.Results, result)
 	log.Printf("[%s] Finalized: %s → winner=%s bid=%d\n", n.ID, result.Item.Name, result.Winner, result.WinningBid)
 	n.Queue.CurrentItem = nil
+	// Checkpoint after every item closes so we never lose a result.
+	go n.initiateGlobalCheckpoint()
 }
 
 // broadcastQueueState pushes a snapshot to all peer nodes.
