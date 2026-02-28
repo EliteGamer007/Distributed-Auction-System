@@ -4,6 +4,7 @@ package node
 // snapshot building, and follower sync.
 
 import (
+	"fmt"
 	"log"
 	"time"
 )
@@ -84,7 +85,7 @@ func (n *Node) runItemTimer(itemID string, deadlineUnix int64) {
 	}
 
 	n.Queue.mu.Lock()
-	if n.Queue.CurrentItem == nil || n.Queue.CurrentItem.ID != itemID {
+	if n.Queue.CurrentItem == nil || n.Queue.CurrentItem.ID != itemID || n.Queue.DeadlineUnix != deadlineUnix {
 		n.Queue.mu.Unlock()
 		return
 	}
@@ -209,4 +210,94 @@ func (n *Node) OnBecomeCoordinator() {
 	default:
 		n.startNextItem()
 	}
+}
+
+func (n *Node) addItemAndBroadcast(name, description string, startingPrice, durationSec int) (bool, string) {
+	if name == "" || description == "" || startingPrice <= 0 || durationSec <= 0 {
+		return false, "name, description, starting price, and duration are required"
+	}
+
+	n.RA.RequestCS()
+	defer n.RA.ReleaseCS()
+
+	n.Queue.mu.Lock()
+	newID := fmt.Sprintf("item-%d", len(n.Queue.Queue)+len(n.Queue.Results)+2)
+	if n.Queue.CurrentItem == nil {
+		newID = "item-1"
+	}
+	item := AuctionItem{
+		ID:            newID,
+		Name:          name,
+		Description:   description,
+		Emoji:         "",
+		StartingPrice: startingPrice,
+		DurationSec:   durationSec,
+	}
+	n.Queue.Queue = append(n.Queue.Queue, item)
+	n.Queue.mu.Unlock()
+
+	n.broadcastQueueState()
+	go n.initiateGlobalCheckpoint()
+	return true, "Item added to queue"
+}
+
+func (n *Node) startAuctionAndBroadcast() (bool, string) {
+	n.RA.RequestCS()
+	defer n.RA.ReleaseCS()
+
+	n.Queue.mu.Lock()
+	if n.Queue.Active && n.Queue.CurrentItem != nil && n.Queue.DeadlineUnix > time.Now().Unix() {
+		n.Queue.mu.Unlock()
+		return true, "Auction already running"
+	}
+
+	if n.Queue.CurrentItem == nil {
+		if len(n.Queue.Queue) == 0 {
+			n.Queue.Active = false
+			n.Queue.mu.Unlock()
+			return false, "No items available to start"
+		}
+		next := n.Queue.Queue[0]
+		n.Queue.Queue = n.Queue.Queue[1:]
+		n.Queue.CurrentItem = &next
+		n.Queue.CurrentHighestBid = next.StartingPrice - 1
+		n.Queue.CurrentWinner = ""
+	}
+
+	n.Queue.Active = true
+	dur := n.Queue.CurrentItem.DurationSec
+	n.Queue.DeadlineUnix = time.Now().Unix() + int64(dur)
+	itemID := n.Queue.CurrentItem.ID
+	deadline := n.Queue.DeadlineUnix
+	n.Queue.mu.Unlock()
+
+	n.broadcastQueueState()
+	go n.initiateGlobalCheckpoint()
+	go n.runItemTimer(itemID, deadline)
+	return true, "Auction started"
+}
+
+func (n *Node) restartAuctionAndBroadcast() (bool, string) {
+	n.RA.RequestCS()
+	defer n.RA.ReleaseCS()
+
+	items := defaultItems()
+	first := items[0]
+
+	n.Queue.mu.Lock()
+	n.Queue.Queue = items[1:]
+	n.Queue.CurrentItem = &first
+	n.Queue.CurrentHighestBid = first.StartingPrice - 1
+	n.Queue.CurrentWinner = ""
+	n.Queue.Results = nil
+	n.Queue.Active = true
+	n.Queue.DeadlineUnix = time.Now().Unix() + int64(first.DurationSec)
+	itemID := first.ID
+	deadline := n.Queue.DeadlineUnix
+	n.Queue.mu.Unlock()
+
+	n.broadcastQueueState()
+	go n.initiateGlobalCheckpoint()
+	go n.runItemTimer(itemID, deadline)
+	return true, "Auction restarted"
 }

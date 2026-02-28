@@ -165,6 +165,25 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     .cp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%%; margin-right: 5px; background: var(--green); }
     .cp-dot.stale { background: var(--yellow); }
     .cp-dot.none { background: var(--muted); }
+
+    .admin-form { display: flex; flex-direction: column; gap: 10px; }
+    .admin-actions { display: flex; gap: 8px; }
+    .btn.secondary {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 0.9rem;
+    }
+    .btn.small {
+      padding: 10px 14px;
+      font-size: 0.9rem;
+    }
+    .admin-feedback {
+      min-height: 18px;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -205,6 +224,23 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
           <button class="btn" id="bidBtn" onclick="submitBid()">Bid</button>
         </div>
         <div id="feedback"></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:20px;">
+      <div class="panel-title">Admin</div>
+      <div class="admin-form">
+        <input type="text" id="newItemName" placeholder="Item name" autocomplete="off">
+        <input type="text" id="newItemDesc" placeholder="Description" autocomplete="off">
+        <div class="input-row">
+          <input type="number" id="newItemPrice" placeholder="Starting price" min="1" autocomplete="off">
+          <input type="number" id="newItemDuration" placeholder="Duration (sec)" min="10" autocomplete="off">
+        </div>
+        <button class="btn small" id="addItemBtn" onclick="addItem()">Add Item</button>
+        <div class="admin-actions">
+          <button class="btn secondary" id="startAuctionBtn" onclick="auctionControl('start')">Start</button>
+          <button class="btn secondary" id="restartAuctionBtn" onclick="auctionControl('restart')">Restart</button>
+        </div>
+        <div id="adminFeedback" class="admin-feedback"></div>
       </div>
     </div>
     <div id="endedBanner" class="ended-banner" style="display:none">
@@ -385,6 +421,92 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
       document.getElementById('cpLamport').textContent = d.lamportStamp;
       document.getElementById('cpResults').textContent = (d.results ? d.results.length : 0) + ' items';
     } catch(e) { console.error('checkpoint fetch error', e); }
+  }
+
+  async function addItem() {
+    const name = document.getElementById('newItemName').value.trim();
+    const description = document.getElementById('newItemDesc').value.trim();
+    const startingPrice = document.getElementById('newItemPrice').value;
+    const durationSec = document.getElementById('newItemDuration').value;
+    const fb = document.getElementById('adminFeedback');
+    const btn = document.getElementById('addItemBtn');
+
+    if (!name || !description || !startingPrice || !durationSec) {
+      fb.textContent = 'Fill all item fields';
+      fb.className = 'admin-feedback err';
+      return;
+    }
+
+    const body = new URLSearchParams();
+    body.append('name', name);
+    body.append('description', description);
+    body.append('startingPrice', startingPrice);
+    body.append('durationSec', durationSec);
+
+    btn.disabled = true;
+    fb.textContent = 'Submitting…';
+    fb.className = 'admin-feedback';
+
+    try {
+      const res = await fetch('/admin/item', {
+        method: 'POST',
+        body,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+      });
+      const msg = await res.text();
+      if (!res.ok) {
+        fb.textContent = msg;
+        fb.className = 'admin-feedback err';
+      } else {
+        fb.textContent = msg;
+        fb.className = 'admin-feedback ok';
+        document.getElementById('newItemName').value = '';
+        document.getElementById('newItemDesc').value = '';
+        document.getElementById('newItemPrice').value = '';
+        document.getElementById('newItemDuration').value = '';
+        fetchState();
+      }
+    } catch (e) {
+      fb.textContent = 'Network error. Try again.';
+      fb.className = 'admin-feedback err';
+    }
+    btn.disabled = false;
+  }
+
+  async function auctionControl(action) {
+    const fb = document.getElementById('adminFeedback');
+    const startBtn = document.getElementById('startAuctionBtn');
+    const restartBtn = document.getElementById('restartAuctionBtn');
+    startBtn.disabled = true;
+    restartBtn.disabled = true;
+    fb.textContent = action === 'start' ? 'Starting…' : 'Restarting…';
+    fb.className = 'admin-feedback';
+
+    const body = new URLSearchParams();
+    body.append('action', action);
+
+    try {
+      const res = await fetch('/admin/auction', {
+        method: 'POST',
+        body,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+      });
+      const msg = await res.text();
+      if (!res.ok) {
+        fb.textContent = msg;
+        fb.className = 'admin-feedback err';
+      } else {
+        fb.textContent = msg;
+        fb.className = 'admin-feedback ok';
+        fetchState();
+      }
+    } catch (e) {
+      fb.textContent = 'Network error. Try again.';
+      fb.className = 'admin-feedback err';
+    }
+
+    startBtn.disabled = false;
+    restartBtn.disabled = false;
   }
 
   setInterval(fetchState, 1000);

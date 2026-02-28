@@ -114,6 +114,8 @@ func (n *Node) Start() {
 	mux.HandleFunc("/", n.handleUI)
 	mux.HandleFunc("/bid", n.handleBidRequest)
 	mux.HandleFunc("/state", n.handleStateRequest)
+	mux.HandleFunc("/admin/item", n.handleAddItemRequest)
+	mux.HandleFunc("/admin/auction", n.handleAuctionControlRequest)
 	mux.HandleFunc("/checkpoint", n.handleCheckpointRequest)
 
 	go func() {

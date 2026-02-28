@@ -32,6 +32,22 @@ type CoordinatorBidReply struct {
 	Message  string
 }
 
+type AddItemArgs struct {
+	Name          string
+	Description   string
+	StartingPrice int
+	DurationSec   int
+}
+
+type AuctionControlArgs struct {
+	Action string
+}
+
+type CoordinatorActionReply struct {
+	Accepted bool
+	Message  string
+}
+
 type EmptyArgs struct{}
 
 type TakeCheckpointArgs struct {
@@ -106,6 +122,52 @@ func (rp *NodeRPC) GetQueueState(_ EmptyArgs, reply *QueueSnapshot) error {
 func (rp *NodeRPC) SyncQueueState(snap QueueSnapshot, reply *bool) error {
 	rp.node.applyQueueSnapshot(snap)
 	*reply = true
+	return nil
+}
+
+func (rp *NodeRPC) SubmitAddItemToCoordinator(args AddItemArgs, reply *CoordinatorActionReply) error {
+	rp.node.ElectionMutex.Lock()
+	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	rp.node.ElectionMutex.Unlock()
+
+	if !isCoordinator {
+		reply.Accepted = false
+		reply.Message = "This node is not the coordinator"
+		return nil
+	}
+
+	accepted, message := rp.node.addItemAndBroadcast(args.Name, args.Description, args.StartingPrice, args.DurationSec)
+	reply.Accepted = accepted
+	reply.Message = message
+	return nil
+}
+
+func (rp *NodeRPC) SubmitAuctionControlToCoordinator(args AuctionControlArgs, reply *CoordinatorActionReply) error {
+	rp.node.ElectionMutex.Lock()
+	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	rp.node.ElectionMutex.Unlock()
+
+	if !isCoordinator {
+		reply.Accepted = false
+		reply.Message = "This node is not the coordinator"
+		return nil
+	}
+
+	var accepted bool
+	var message string
+	switch args.Action {
+	case "start":
+		accepted, message = rp.node.startAuctionAndBroadcast()
+	case "restart":
+		accepted, message = rp.node.restartAuctionAndBroadcast()
+	default:
+		reply.Accepted = false
+		reply.Message = "Unsupported action"
+		return nil
+	}
+
+	reply.Accepted = accepted
+	reply.Message = message
 	return nil
 }
 
