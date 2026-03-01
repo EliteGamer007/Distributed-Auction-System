@@ -129,6 +129,10 @@ func (n *Node) broadcastQueueState() {
 
 // buildQueueSnapshot returns a serialisable copy of the current queue state.
 func (n *Node) buildQueueSnapshot() QueueSnapshot {
+	n.ElectionMutex.Lock()
+	isCoordinator := n.Coordinator == "" || n.Coordinator == n.ID
+	n.ElectionMutex.Unlock()
+
 	n.Queue.mu.Lock()
 	defer n.Queue.mu.Unlock()
 
@@ -140,6 +144,7 @@ func (n *Node) buildQueueSnapshot() QueueSnapshot {
 		QueueLen:          len(n.Queue.Queue),
 		Results:           append([]ItemResult(nil), n.Queue.Results...),
 		RemainingItems:    append([]AuctionItem(nil), n.Queue.Queue...),
+		IsCoordinator:     isCoordinator,
 	}
 	if n.Queue.CurrentItem != nil {
 		item := *n.Queue.CurrentItem

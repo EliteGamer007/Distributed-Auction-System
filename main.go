@@ -1,13 +1,12 @@
 package main
 
 import (
+	"auction_node/node"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
-
-	"distributed-auction/node"
 )
 
 func main() {

@@ -70,6 +70,7 @@ type QueueSnapshot struct {
 	QueueLen          int
 	RemainingItems    []AuctionItem
 	Results           []ItemResult
+	IsCoordinator     bool
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
