@@ -15,8 +15,11 @@ import (
 )
 
 const (
-	voteWaitTimeout = 2500 * time.Millisecond
-	preparedTxnTTL  = 8 * time.Second
+	voteWaitTimeout          = 2500 * time.Millisecond
+	decisionAckWaitTimeout   = 2500 * time.Millisecond
+	decisionAckRetryInterval = 2 * time.Second
+	decisionAckMaxRetries    = 5
+	preparedTxnTTL           = 8 * time.Second
 )
 
 // Node is the main distributed auction node.
@@ -34,6 +37,7 @@ type Node struct {
 	LeaderChan    chan bool
 	TxnMutex      sync.Mutex
 	PendingTxns   map[string]PendingTxn
+	TxnLogMutex   sync.Mutex
 }
 
 type PendingTxn struct {
@@ -46,9 +50,11 @@ type NodeRPC struct {
 }
 
 func NewNode(id, address string, peers []string, rank int) *Node {
+	peers = sanitizePeers(peers, address)
 	clock := &LamportClock{}
 	client := &RPCClient{}
 	ra := NewRAManager(id, peers, clock, client)
+	restoredPending := map[string]PendingTxn{}
 
 	// Try to restore from a previously saved checkpoint.
 	var queue *ItemQueueState
@@ -59,6 +65,12 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 		log.Printf("[%s] 🔄 Restoring from checkpoint (lamport=%d, item=%v, results=%d)\n",
 			id, cp.LamportTime, itemName(cp.CurrentItem), len(cp.Results))
 		clock.Update(cp.LamportTime)
+		for txnID, pending := range cp.PendingTxns {
+			restoredPending[txnID] = PendingTxn{
+				Bid:        pending.Bid,
+				PreparedAt: time.Unix(pending.PreparedAtUnix, 0),
+			}
+		}
 		queue = &ItemQueueState{
 			CurrentItem:       cp.CurrentItem,
 			Queue:             cp.RemainingQueue,
@@ -82,8 +94,25 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 		Client:      client,
 		Rank:        rank,
 		LeaderChan:  make(chan bool),
-		PendingTxns: map[string]PendingTxn{},
+		PendingTxns: restoredPending,
 	}
+}
+
+func sanitizePeers(peers []string, selfAddress string) []string {
+	seen := map[string]bool{}
+	clean := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peer = strings.TrimSpace(peer)
+		if peer == "" || peer == selfAddress {
+			continue
+		}
+		if seen[peer] {
+			continue
+		}
+		seen[peer] = true
+		clean = append(clean, peer)
+	}
+	return clean
 }
 
 // freshQueue initialises a brand-new queue from the default item seed.

@@ -97,17 +97,20 @@ func (rp *NodeRPC) PrepareBid(args PrepareArgs, reply *PrepareReply) error {
 	if !rp.node.canPrepareBid(args.Bid) {
 		reply.Vote = false
 		reply.Reason = "bid not higher, auction inactive, or time expired"
+		rp.node.logTxnEvent(args.TxnID, "TXN_PREPARE_VOTE_NO", reply.Reason)
 		return nil
 	}
 	rp.node.rememberPendingTxn(args.TxnID, args.Bid)
 	reply.Vote = true
 	reply.Reason = "prepared"
+	rp.node.logTxnEvent(args.TxnID, "TXN_PREPARE_VOTE_YES", "prepared")
 	return nil
 }
 
 // DecideBid is Phase-2 of 2PC: apply commit or abort.
 func (rp *NodeRPC) DecideBid(args DecisionArgs, reply *bool) error {
 	rp.node.applyDecision(args.TxnID, args.Commit, args.Bid)
+	rp.node.logTxnEvent(args.TxnID, "TXN_DECIDE_ACK_SENT", "decision applied and ACK sent")
 	*reply = true
 	return nil
 }

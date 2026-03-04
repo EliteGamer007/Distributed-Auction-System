@@ -6,6 +6,7 @@ package node
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,7 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 	txnID := fmt.Sprintf("%s-%d", n.ID, n.Clock.Tick())
 	quorum := (len(n.Peers)+1)/2 + 1
 	votes := 1
+	n.logTxnEvent(txnID, "TXN_BEGIN", fmt.Sprintf("bid=%d bidder=%s quorum=%d", amount, bidder, quorum))
 
 	n.rememberPendingTxn(txnID, txnBid)
 
@@ -76,23 +78,33 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 	n.applyDecision(txnID, commit, txnBid)
 
 	decision := DecisionArgs{TxnID: txnID, Commit: commit, Bid: txnBid, Leader: n.ID}
-	for _, peer := range n.Peers {
-		go func(p string) {
-			var ack bool
-			_ = n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
-		}(peer)
+	if !commit {
+		n.logTxnEvent(txnID, "TXN_ABORT", fmt.Sprintf("votes=%d quorum=%d", votes, quorum))
+		for _, peer := range n.Peers {
+			go func(p string) {
+				var ack bool
+				_ = n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
+			}(peer)
+		}
+		log.Printf("[%s] Txn %s aborted (votes=%d, quorum=%d)\n", n.ID, txnID, votes, quorum)
+		return false, fmt.Sprintf("Bid aborted: quorum not reached (%d/%d)", votes, quorum)
 	}
 
-	if commit {
-		go n.broadcastQueueState()
-		// Anti-snipe: if a bid lands with less than 15s left, extend the deadline.
-		n.maybeExtendDeadline()
-		log.Printf("[%s] Txn %s committed bid=%d bidder=%s\n", n.ID, txnID, amount, bidder)
-		return true, "Bid committed by quorum"
+	ackCount, allAcked, missingPeers := n.broadcastDecisionAndCollectAcks(txnID, decision)
+
+	go n.broadcastQueueState()
+	// Anti-snipe: if a bid lands with less than 15s left, extend the deadline.
+	n.maybeExtendDeadline()
+	log.Printf("[%s] Txn %s committed bid=%d bidder=%s\n", n.ID, txnID, amount, bidder)
+
+	if allAcked {
+		n.logTxnEvent(txnID, "TXN_TERMINATED", fmt.Sprintf("all participants ACKed (%d/%d)", ackCount, len(n.Peers)))
+		return true, "Bid committed by quorum and globally terminated"
 	}
 
-	log.Printf("[%s] Txn %s aborted (votes=%d, quorum=%d)\n", n.ID, txnID, votes, quorum)
-	return false, fmt.Sprintf("Bid aborted: quorum not reached (%d/%d)", votes, quorum)
+	n.logTxnEvent(txnID, "TXN_TERMINATION_PENDING", fmt.Sprintf("ACKs=%d/%d missing=%s", ackCount, len(n.Peers), strings.Join(missingPeers, ",")))
+	go n.retryDecisionUntilAllAcked(txnID, decision, missingPeers)
+	return true, fmt.Sprintf("Bid committed by quorum; waiting for participant ACKs (%d/%d)", ackCount, len(n.Peers))
 }
 
 // canPrepareBid checks whether a bid is valid against current queue state.
@@ -110,6 +122,7 @@ func (n *Node) rememberPendingTxn(txnID string, bid BidArgs) {
 	n.TxnMutex.Lock()
 	n.PendingTxns[txnID] = PendingTxn{Bid: bid, PreparedAt: time.Now()}
 	n.TxnMutex.Unlock()
+	n.logTxnEvent(txnID, "TXN_PREPARED", fmt.Sprintf("bid=%d bidder=%s", bid.Amount, bid.Bidder))
 }
 
 // applyDecision commits or aborts a transaction and updates queue state.
@@ -124,6 +137,7 @@ func (n *Node) applyDecision(txnID string, commit bool, fallbackBid BidArgs) {
 	n.TxnMutex.Unlock()
 
 	if !commit {
+		n.logTxnEvent(txnID, "TXN_ABORT_APPLIED", fmt.Sprintf("bid=%d bidder=%s", bid.Amount, bid.Bidder))
 		return
 	}
 
@@ -133,6 +147,7 @@ func (n *Node) applyDecision(txnID string, commit bool, fallbackBid BidArgs) {
 		n.Queue.CurrentWinner = bid.Bidder
 	}
 	n.Queue.mu.Unlock()
+	n.logTxnEvent(txnID, "TXN_COMMIT_APPLIED", fmt.Sprintf("bid=%d bidder=%s", bid.Amount, bid.Bidder))
 }
 
 // abortStalePreparedTxns cleans up transactions that never received a decision (2PC timeout).
@@ -146,8 +161,82 @@ func (n *Node) abortStalePreparedTxns() {
 			if now.Sub(pending.PreparedAt) > preparedTxnTTL {
 				delete(n.PendingTxns, txnID)
 				log.Printf("[%s] Auto-aborted stale txn %s\n", n.ID, txnID)
+				n.logTxnEvent(txnID, "TXN_STALE_ABORT", "prepared txn timed out before decision")
 			}
 		}
 		n.TxnMutex.Unlock()
 	}
+}
+
+func (n *Node) broadcastDecisionAndCollectAcks(txnID string, decision DecisionArgs) (int, bool, []string) {
+	if len(n.Peers) == 0 {
+		return 0, true, nil
+	}
+
+	type ackResult struct {
+		peer string
+		ack  bool
+	}
+	ackCh := make(chan ackResult, len(n.Peers))
+	missing := make(map[string]bool, len(n.Peers))
+	for _, peer := range n.Peers {
+		missing[peer] = true
+		go func(p string) {
+			var ack bool
+			err := n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
+			ackCh <- ackResult{peer: p, ack: err == nil && ack}
+		}(peer)
+	}
+
+	acks := 0
+	pending := len(n.Peers)
+	timer := time.NewTimer(decisionAckWaitTimeout)
+	defer timer.Stop()
+
+	for pending > 0 {
+		select {
+		case result := <-ackCh:
+			pending--
+			if result.ack {
+				acks++
+				delete(missing, result.peer)
+				n.logTxnEvent(txnID, "TXN_DECIDE_ACK", fmt.Sprintf("peer=%s", result.peer))
+			}
+		case <-timer.C:
+			pending = 0
+		}
+	}
+
+	missingPeers := make([]string, 0, len(missing))
+	for peer := range missing {
+		missingPeers = append(missingPeers, peer)
+	}
+	return acks, len(missingPeers) == 0, missingPeers
+}
+
+func (n *Node) retryDecisionUntilAllAcked(txnID string, decision DecisionArgs, missing []string) {
+	remaining := append([]string(nil), missing...)
+	for attempt := 1; attempt <= decisionAckMaxRetries && len(remaining) > 0; attempt++ {
+		time.Sleep(decisionAckRetryInterval)
+		nextRemaining := make([]string, 0, len(remaining))
+		for _, peer := range remaining {
+			var ack bool
+			err := n.Client.Call(peer, "NodeRPC.DecideBid", decision, &ack)
+			if err == nil && ack {
+				n.logTxnEvent(txnID, "TXN_DECIDE_ACK_RETRY", fmt.Sprintf("peer=%s attempt=%d", peer, attempt))
+				continue
+			}
+			nextRemaining = append(nextRemaining, peer)
+		}
+		remaining = nextRemaining
+		if len(remaining) > 0 {
+			n.logTxnEvent(txnID, "TXN_TERMINATION_RETRY", fmt.Sprintf("attempt=%d remaining=%s", attempt, strings.Join(remaining, ",")))
+		}
+	}
+
+	if len(remaining) == 0 {
+		n.logTxnEvent(txnID, "TXN_TERMINATED", "all participants ACKed after retry")
+		return
+	}
+	n.logTxnEvent(txnID, "TXN_TERMINATION_INCOMPLETE", fmt.Sprintf("unacked participants=%s", strings.Join(remaining, ",")))
 }

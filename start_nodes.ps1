@@ -37,19 +37,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $exe = Join-Path $PSScriptRoot 'auction_node.exe'
-$peers = 'localhost:8001,localhost:8002,localhost:8003,localhost:8004'
 
 Write-Host "[4/5] Starting 4 nodes..."
 $nodes = @(
-    @{ Id = '1'; Port = '8001'; Log = 'node1.log' },
-    @{ Id = '2'; Port = '8002'; Log = 'node2.log' },
-    @{ Id = '3'; Port = '8003'; Log = 'node3.log' },
-    @{ Id = '4'; Port = '8004'; Log = 'node4.log' }
+    @{ Id = '1'; Port = '8001'; Peers = 'localhost:8002,localhost:8003,localhost:8004'; Log = 'node1.log' },
+    @{ Id = '2'; Port = '8002'; Peers = 'localhost:8001,localhost:8003,localhost:8004'; Log = 'node2.log' },
+    @{ Id = '3'; Port = '8003'; Peers = 'localhost:8001,localhost:8002,localhost:8004'; Log = 'node3.log' },
+    @{ Id = '4'; Port = '8004'; Peers = 'localhost:8001,localhost:8002,localhost:8003'; Log = 'node4.log' }
 )
 
 foreach ($node in $nodes) {
     $logPath = Join-Path $PSScriptRoot $node.Log
-    $cmd = "& '$exe' --id=$($node.Id) --port=$($node.Port) --host=0.0.0.0 --peers=$peers *> '$logPath'"
+    $cmd = "& '$exe' --id=$($node.Id) --port=$($node.Port) --host=0.0.0.0 --peers=$($node.Peers) *> '$logPath'"
     Start-Process -FilePath powershell.exe -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -ArgumentList @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',

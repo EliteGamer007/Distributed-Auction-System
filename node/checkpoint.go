@@ -37,8 +37,14 @@ type CheckpointData struct {
 	CurrentWinner     string        `json:"currentWinner"`
 	DeadlineUnix      int64         `json:"deadlineUnix"`
 	Active            bool          `json:"active"`
+	PendingTxns       map[string]PendingTxnCheckpoint `json:"pendingTxns"`
 	CheckpointTime    int64         `json:"checkpointTime"` // wall-clock Unix
 	LamportStamp      int           `json:"lamportStamp"`   // Lamport time at checkpoint
+}
+
+type PendingTxnCheckpoint struct {
+	Bid            BidArgs `json:"bid"`
+	PreparedAtUnix int64   `json:"preparedAtUnix"`
 }
 
 // checkpointPath returns the file path for a node's checkpoint.
@@ -99,6 +105,7 @@ func (n *Node) takeLocalCheckpoint() error {
 		Active:            n.Queue.Active,
 		Results:           append([]ItemResult(nil), n.Queue.Results...),
 		RemainingQueue:    append([]AuctionItem(nil), n.Queue.Queue...),
+		PendingTxns:       map[string]PendingTxnCheckpoint{},
 		CheckpointTime:    time.Now().Unix(),
 	}
 	if n.Queue.CurrentItem != nil {
@@ -107,11 +114,20 @@ func (n *Node) takeLocalCheckpoint() error {
 	}
 	n.Queue.mu.Unlock()
 
+	n.TxnMutex.Lock()
+	for txnID, pending := range n.PendingTxns {
+		data.PendingTxns[txnID] = PendingTxnCheckpoint{
+			Bid:            pending.Bid,
+			PreparedAtUnix: pending.PreparedAt.Unix(),
+		}
+	}
+	n.TxnMutex.Unlock()
+
 	if err := saveCheckpoint(data); err != nil {
 		return err
 	}
-	log.Printf("[%s] 📸 Checkpoint saved (lamport=%d, item=%v, results=%d)\n",
-		n.ID, data.LamportStamp, itemName(data.CurrentItem), len(data.Results))
+	log.Printf("[%s] 📸 Checkpoint saved (lamport=%d, item=%v, results=%d, pendingTxns=%d)\n",
+		n.ID, data.LamportStamp, itemName(data.CurrentItem), len(data.Results), len(data.PendingTxns))
 	return nil
 }
 
