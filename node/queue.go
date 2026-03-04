@@ -170,9 +170,7 @@ func (n *Node) applyQueueSnapshot(snap QueueSnapshot) {
 	n.Queue.DeadlineUnix = snap.DeadlineUnix
 	n.Queue.Active = snap.Active
 	n.Queue.Queue = snap.RemainingItems
-	if len(snap.Results) > len(n.Queue.Results) {
-		n.Queue.Results = snap.Results
-	}
+	n.Queue.Results = append([]ItemResult(nil), snap.Results...)
 }
 
 // periodicStateSync pulls state from the coordinator every 2 seconds (follower only).
@@ -200,9 +198,15 @@ func (n *Node) OnBecomeCoordinator() {
 	n.reconcileStateFromPeers()
 
 	n.Queue.mu.Lock()
+	isActive := n.Queue.Active
 	hasItem := n.Queue.CurrentItem != nil
 	deadlineSet := n.Queue.DeadlineUnix > 0
 	n.Queue.mu.Unlock()
+
+	if !isActive {
+		// Explicit user action is required to start/restart the auction.
+		return
+	}
 
 	switch {
 	case hasItem && deadlineSet:
@@ -226,6 +230,7 @@ func (n *Node) OnBecomeCoordinator() {
 		go n.runItemTimer(itemID, deadline)
 
 	default:
+		// Active auction with no current item: continue queue progression.
 		n.startNextItem()
 	}
 }
@@ -352,9 +357,8 @@ func (n *Node) startAuctionAndBroadcast() (bool, string) {
 
 	if n.Queue.CurrentItem == nil {
 		if len(n.Queue.Queue) == 0 {
-			n.Queue.Active = false
-			n.Queue.mu.Unlock()
-			return false, "No items available to start"
+			items := defaultItems()
+			n.Queue.Queue = items
 		}
 		next := n.Queue.Queue[0]
 		n.Queue.Queue = n.Queue.Queue[1:]
@@ -399,4 +403,22 @@ func (n *Node) restartAuctionAndBroadcast() (bool, string) {
 	go n.initiateGlobalCheckpoint()
 	go n.runItemTimer(itemID, deadline)
 	return true, "Auction restarted"
+}
+
+func (n *Node) stopAuctionAndBroadcast() (bool, string) {
+	n.RA.RequestCS()
+	defer n.RA.ReleaseCS()
+
+	n.Queue.mu.Lock()
+	if !n.Queue.Active {
+		n.Queue.mu.Unlock()
+		return false, "Auction already stopped"
+	}
+	n.Queue.Active = false
+	// Keep current item and queue intact for potential resume
+	n.Queue.mu.Unlock()
+
+	n.broadcastQueueState()
+	go n.initiateGlobalCheckpoint()
+	return true, "Auction stopped"
 }

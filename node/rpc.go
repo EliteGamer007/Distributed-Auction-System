@@ -183,6 +183,8 @@ func (rp *NodeRPC) SubmitAuctionControlToCoordinator(args AuctionControlArgs, re
 		accepted, message = rp.node.startAuctionAndBroadcast()
 	case "restart":
 		accepted, message = rp.node.restartAuctionAndBroadcast()
+	case "stop":
+		accepted, message = rp.node.stopAuctionAndBroadcast()
 	default:
 		reply.Accepted = false
 		reply.Message = "Unsupported action"

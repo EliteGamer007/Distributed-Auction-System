@@ -238,6 +238,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
         <button class="btn small" id="addItemBtn" onclick="addItem()">Add Item</button>
         <div class="admin-actions">
           <button class="btn secondary" id="startAuctionBtn" onclick="auctionControl('start')">Start</button>
+          <button class="btn secondary" id="stopAuctionBtn" onclick="auctionControl('stop')">Stop</button>
           <button class="btn secondary" id="restartAuctionBtn" onclick="auctionControl('restart')">Restart</button>
         </div>
         <div id="adminFeedback" class="admin-feedback"></div>
@@ -316,6 +317,8 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     try {
       const res = await fetch('/state');
       const d = await res.json();
+      // Admin panel always visible - actions proxy to coordinator
+      document.getElementById('adminPanel').style.display = 'block';
 
       if (!d.Active || !d.CurrentItem) {
         document.getElementById('currentCard').style.display = 'none';
@@ -328,7 +331,6 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 
       document.getElementById('currentCard').style.display = 'flex';
       document.getElementById('endedBanner').style.display = 'none';
-      document.getElementById('adminPanel').style.display = d.IsCoordinator ? 'block' : 'none';
 
       const item = d.CurrentItem;
       document.getElementById('itemEmoji').textContent = item.Emoji;
@@ -481,10 +483,12 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
   async function auctionControl(action) {
     const fb = document.getElementById('adminFeedback');
     const startBtn = document.getElementById('startAuctionBtn');
+    const stopBtn = document.getElementById('stopAuctionBtn');
     const restartBtn = document.getElementById('restartAuctionBtn');
     startBtn.disabled = true;
+    stopBtn.disabled = true;
     restartBtn.disabled = true;
-    fb.textContent = action === 'start' ? 'Starting…' : 'Restarting…';
+    fb.textContent = action === 'start' ? 'Starting…' : (action === 'stop' ? 'Stopping…' : 'Restarting…');
     fb.className = 'admin-feedback';
 
     const body = new URLSearchParams();
@@ -511,6 +515,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     }
 
     startBtn.disabled = false;
+    stopBtn.disabled = false;
     restartBtn.disabled = false;
   }
 

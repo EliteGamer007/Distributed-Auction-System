@@ -134,12 +134,12 @@ func sanitizePeers(peers []string, selfAddress string) []string {
 func freshQueue() *ItemQueueState {
 	items := defaultItems()
 	q := &ItemQueueState{
-		Queue:  items[1:],
-		Active: true,
+		Queue:             append([]AuctionItem(nil), items...),
+		CurrentHighestBid: 0,
+		CurrentWinner:     "",
+		DeadlineUnix:      0,
+		Active:            false,
 	}
-	first := items[0]
-	q.CurrentItem = &first
-	q.CurrentHighestBid = first.StartingPrice - 1
 	return q
 }
 

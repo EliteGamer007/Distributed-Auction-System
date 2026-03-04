@@ -180,7 +180,7 @@ func (n *Node) handleAuctionControlRequest(w http.ResponseWriter, r *http.Reques
 		action = r.FormValue("action")
 	}
 
-	if action != "start" && action != "restart" {
+	if action != "start" && action != "restart" && action != "stop" {
 		http.Error(w, "Unsupported action", http.StatusBadRequest)
 		return
 	}
@@ -211,6 +211,8 @@ func (n *Node) handleAuctionControlRequest(w http.ResponseWriter, r *http.Reques
 	var message string
 	if action == "start" {
 		accepted, message = n.startAuctionAndBroadcast()
+	} else if action == "stop" {
+		accepted, message = n.stopAuctionAndBroadcast()
 	} else {
 		accepted, message = n.restartAuctionAndBroadcast()
 	}
