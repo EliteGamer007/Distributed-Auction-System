@@ -226,7 +226,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
         <div id="feedback"></div>
       </div>
     </div>
-    <div class="panel" style="margin-top:20px;">
+    <div class="panel" id="adminPanel" style="margin-top:20px;display:none;">
       <div class="panel-title">Admin</div>
       <div class="admin-form">
         <input type="text" id="newItemName" placeholder="Item name" autocomplete="off">
@@ -328,6 +328,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
 
       document.getElementById('currentCard').style.display = 'flex';
       document.getElementById('endedBanner').style.display = 'none';
+      document.getElementById('adminPanel').style.display = d.IsCoordinator ? 'block' : 'none';
 
       const item = d.CurrentItem;
       document.getElementById('itemEmoji').textContent = item.Emoji;
@@ -393,6 +394,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
       const res = await fetch('/bid', { method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded'} });
       if (!res.ok) {
         fb.textContent = await res.text(); fb.className = 'err';
+        setTimeout(function() { fb.textContent = ''; fb.className = ''; }, 10000);
       } else {
         fb.textContent = await res.text(); fb.className = 'ok';
         document.getElementById('amount').value = '';
@@ -410,6 +412,9 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
       const res = await fetch('/checkpoint');
       if (res.status === 404) {
         document.getElementById('cpStatus').innerHTML = '<span class="cp-dot none"></span>None yet';
+        document.getElementById('cpTime').textContent = '—';
+        document.getElementById('cpLamport').textContent = '—';
+        document.getElementById('cpResults').textContent = '—';
         return;
       }
       const d = await res.json();

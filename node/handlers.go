@@ -34,7 +34,11 @@ func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	coordinatorAddress, isLocalCoordinator := n.getCoordinatorAddress()
-	if coordinatorAddress != "" && !isLocalCoordinator {
+	if !isLocalCoordinator {
+		if coordinatorAddress == "" {
+			http.Error(w, "Election in progress, please wait", http.StatusServiceUnavailable)
+			return
+		}
 		// Forward to coordinator
 		var reply CoordinatorBidReply
 		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitBidToCoordinator",
@@ -117,7 +121,11 @@ func (n *Node) handleAddItemRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	coordinatorAddress, isLocalCoordinator := n.getCoordinatorAddress()
-	if coordinatorAddress != "" && !isLocalCoordinator {
+	if !isLocalCoordinator {
+		if coordinatorAddress == "" {
+			http.Error(w, "Election in progress, please wait", http.StatusServiceUnavailable)
+			return
+		}
 		var reply CoordinatorActionReply
 		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitAddItemToCoordinator",
 			AddItemArgs{Name: name, Description: description, StartingPrice: startingPrice, DurationSec: durationSec}, &reply)
@@ -178,7 +186,11 @@ func (n *Node) handleAuctionControlRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	coordinatorAddress, isLocalCoordinator := n.getCoordinatorAddress()
-	if coordinatorAddress != "" && !isLocalCoordinator {
+	if !isLocalCoordinator {
+		if coordinatorAddress == "" {
+			http.Error(w, "Election in progress, please wait", http.StatusServiceUnavailable)
+			return
+		}
 		var reply CoordinatorActionReply
 		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitAuctionControlToCoordinator",
 			AuctionControlArgs{Action: action}, &reply)
