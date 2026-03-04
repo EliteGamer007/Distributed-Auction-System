@@ -98,16 +98,16 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 	}
 
 	return &Node{
-		ID:          id,
-		Address:     address,
-		Peers:       peers,
-		Queue:       queue,
-		Clock:       clock,
-		RA:          ra,
-		Client:      client,
-		Rank:        rank,
-		LeaderChan:  make(chan bool),
-		PendingTxns: restoredPending,
+		ID:           id,
+		Address:      address,
+		Peers:        peers,
+		Queue:        queue,
+		Clock:        clock,
+		RA:           ra,
+		Client:       client,
+		Rank:         rank,
+		LeaderChan:   make(chan bool),
+		PendingTxns:  restoredPending,
 		Dependencies: map[string]bool{},
 		KTRounds:     map[string]*KTRoundState{},
 	}

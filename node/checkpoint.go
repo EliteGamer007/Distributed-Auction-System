@@ -28,18 +28,18 @@ const (
 
 // CheckpointData is the full serialisable state of a node, written to disk.
 type CheckpointData struct {
-	NodeID            string        `json:"nodeId"`
-	LamportTime       int           `json:"lamportTime"`
-	CurrentItem       *AuctionItem  `json:"currentItem"`
-	RemainingQueue    []AuctionItem `json:"remainingQueue"`
-	Results           []ItemResult  `json:"results"`
-	CurrentHighestBid int           `json:"currentHighestBid"`
-	CurrentWinner     string        `json:"currentWinner"`
-	DeadlineUnix      int64         `json:"deadlineUnix"`
-	Active            bool          `json:"active"`
+	NodeID            string                          `json:"nodeId"`
+	LamportTime       int                             `json:"lamportTime"`
+	CurrentItem       *AuctionItem                    `json:"currentItem"`
+	RemainingQueue    []AuctionItem                   `json:"remainingQueue"`
+	Results           []ItemResult                    `json:"results"`
+	CurrentHighestBid int                             `json:"currentHighestBid"`
+	CurrentWinner     string                          `json:"currentWinner"`
+	DeadlineUnix      int64                           `json:"deadlineUnix"`
+	Active            bool                            `json:"active"`
 	PendingTxns       map[string]PendingTxnCheckpoint `json:"pendingTxns"`
-	CheckpointTime    int64         `json:"checkpointTime"` // wall-clock Unix
-	LamportStamp      int           `json:"lamportStamp"`   // Lamport time at checkpoint
+	CheckpointTime    int64                           `json:"checkpointTime"` // wall-clock Unix
+	LamportStamp      int                             `json:"lamportStamp"`   // Lamport time at checkpoint
 }
 
 type PendingTxnCheckpoint struct {
@@ -235,11 +235,11 @@ func (n *Node) handleKTTentativeRequest(args KTTentativeArgs) (bool, []string, s
 
 		var reply KTTentativeReply
 		err := n.callPeer(dep, "NodeRPC.HandleKTTentativeCheckpoint", KTTentativeArgs{
-			RoundID:    args.RoundID,
-			Initiator:  args.Initiator,
+			RoundID:     args.RoundID,
+			Initiator:   args.Initiator,
 			LamportTime: n.Clock.Get(),
-			From:       n.Address,
-			Visited:    nextVisited,
+			From:        n.Address,
+			Visited:     nextVisited,
 		}, &reply)
 		if err != nil || !reply.OK {
 			n.abortTentativeCheckpoint(args.RoundID)
@@ -315,11 +315,11 @@ func (n *Node) initiateGlobalCheckpoint() {
 	log.Printf("[%s] 🟢 Koo-Toueg checkpoint round start: %s\n", n.ID, roundID)
 
 	ok, participants, reason := n.handleKTTentativeRequest(KTTentativeArgs{
-		RoundID:    roundID,
-		Initiator:  n.ID,
+		RoundID:     roundID,
+		Initiator:   n.ID,
 		LamportTime: lamport,
-		From:       n.Address,
-		Visited:    []string{n.Address},
+		From:        n.Address,
+		Visited:     []string{n.Address},
 	})
 
 	participantSet := sliceToSet(participants)
