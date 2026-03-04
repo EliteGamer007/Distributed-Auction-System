@@ -6,13 +6,15 @@ import (
 )
 
 type RAMessage struct {
-	Timestamp int
-	NodeID    string
+	Timestamp     int
+	NodeID        string
+	SenderAddress string // TCP address for deferred replies
 }
 
 type RAManager struct {
 	mu            sync.Mutex
 	NodeID        string
+	Address       string
 	Peers         []string
 	Clock         *LamportClock
 	RequestTime   int
@@ -23,9 +25,10 @@ type RAManager struct {
 	ReplyChan     chan struct{}
 }
 
-func NewRAManager(nodeID string, peers []string, clock *LamportClock, client *RPCClient) *RAManager {
+func NewRAManager(nodeID, address string, peers []string, clock *LamportClock, client *RPCClient) *RAManager {
 	return &RAManager{
 		NodeID:    nodeID,
+		Address:   address,
 		Peers:     peers,
 		Clock:     clock,
 		Client:    client,
@@ -44,7 +47,7 @@ func (ra *RAManager) RequestCS() {
 
 	for _, peer := range ra.Peers {
 		go func(p string) {
-			req := RAMessage{Timestamp: ra.RequestTime, NodeID: ra.NodeID}
+			req := RAMessage{Timestamp: ra.RequestTime, NodeID: ra.NodeID, SenderAddress: ra.Address}
 			var reply bool
 			err := ra.Client.Call(p, "NodeRPC.HandleRARequest", req, &reply)
 			if err != nil {
@@ -81,7 +84,11 @@ func (ra *RAManager) ReceiveRequest(req RAMessage) bool {
 
 	if deferReply {
 		log.Printf("[%s] Deferring reply to %s\n", ra.NodeID, req.NodeID)
-		ra.DeferredReply = append(ra.DeferredReply, req.NodeID)
+		addr := req.SenderAddress
+		if addr == "" {
+			addr = req.NodeID // fallback for backwards compatibility
+		}
+		ra.DeferredReply = append(ra.DeferredReply, addr)
 		return false
 	}
 	log.Printf("[%s] Replying to %s immediately\n", ra.NodeID, req.NodeID)

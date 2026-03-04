@@ -1,137 +1,422 @@
-﻿________________________________________
-🏗 2️⃣ System Model
-•	Asynchronous distributed system
-•	Message-passing communication (Go RPC)
-•	Crash-stop failure model
-•	No shared memory
-•	Logical clock-based ordering
-•	Majority quorum (3/4)
-________________________________________
-🧠 3️⃣ Concepts Covered (Mapped to Syllabus)
-________________________________________
-🔹 A. Models of Computation
-✔ Shared-nothing architecture
-✔ Message-passing system
-✔ Asynchronous system behavior
-✔ RPC-based communication
-________________________________________
-🔹 B. Logical Time & Event Ordering
-Implemented using:
-•	Lamport Logical Clocks
-•	Timestamped messages
-•	Total ordering of bids
-Purpose:
-•	Resolve simultaneous bids
-•	Maintain consistent event ordering
-________________________________________
-🔹 C. Distributed Mutual Exclusion
-Algorithm used:
-•	Ricart–Agrawala
-Used to:
-•	Prevent simultaneous bid processing
-•	Ensure one transaction enters commit phase at a time
-Demonstrates:
-•	Fairness
-•	No centralized locking
-•	Deadlock-free protocol
-________________________________________
-🔹 D. Leader Election
-Algorithm used:
-•	Bully Algorithm
-Used to:
-•	Elect coordinator node
-•	Replace failed leader
-•	Maintain availability
-Demonstrates:
-•	Failure detection
-•	Re-election
-•	Liveness guarantee
-________________________________________
-🔹 E. Consensus & Agreement Problem
-Consensus style:
-•	Majority quorum-based agreement
-Implementation:
-•	Mini Two-Phase Commit
-•	Voting phase
-•	Commit/Abort decision
-Demonstrates:
-•	Agreement problem
-•	Quorum logic
-•	Strong consistency model
-________________________________________
-🔹 F. Commit Protocol
-Two-Phase Commit (2PC):
-Phase 1: PREPARE (Voting)
-Phase 2: COMMIT or ABORT
-Demonstrates:
-•	Atomicity
-•	Consistency
-•	Blocking problem of 2PC
-________________________________________
-🔹 G. Fault Tolerance
-Implemented using:
-✔ Crash-stop model
-✔ Leader re-election
-✔ Transaction logs
-✔ Recovery from checkpoint
-✔ Timeout detection
-Failure Scenarios Handled:
-•	Leader crash before commit
-•	Participant crash during voting
-•	Network delay simulation
-________________________________________
-🔹 H. Coordinated Checkpointing
-Mechanism:
-•	Leader initiates global checkpoint
-•	All nodes save:
-o	Highest bid
-o	Bidder
-o	Logical clock
-o	Pending transactions
-Checkpoint ensures:
-•	Consistent recovery state
-•	No orphan processes
-•	No inconsistent rollbacks
-Demonstrates:
-•	Coordinated checkpoint protocol
-•	Recovery model
-•	Consistent global state
-________________________________________
-🔹 I. Termination Detection
-After commit:
-•	Leader waits for ACK from all participants
-•	Once all ACK received → transaction considered globally terminated
-Demonstrates:
-•	Distributed termination detection
-•	Completion guarantees
-________________________________________
-🔹 J. Replica Management & Consistency
-•	All nodes maintain replicated auction state
-•	Commit only on majority agreement
-•	Strong consistency model
-Consistency Type:
-•	Linearizable updates via quorum commit
-________________________________________
-🔹 K. Concurrency Control
-•	Mutual exclusion ensures serializability
-•	Logical clock ordering ensures deterministic processing
-Equivalent to:
-•	Strict serializable execution
-________________________________________
-🔹 L. Fault Recovery
-Upon restart:
-1.	Load checkpoint
-2.	Rejoin cluster
-3.	Sync with leader
-4.	Resume normal operation
-Demonstrates:
-•	Recovery protocol
-•	State reconciliation
-________________________________________
-🔹 M. Cloud & Distributed System Concepts
-•	Cluster-style architecture
-•	Coordinator-based transaction manager
-•	Similar to distributed DB transaction layer
-Conceptually inspired by:
-•	Google Spanner
-•	Amazon Aurora
+________________________________________________________________________________
+
+  DISTRIBUTED AUCTION SYSTEM — IMPLEMENTATION DETAILS & SYLLABUS MAPPING
+________________________________________________________________________________
+
+
+1. PROBLEM STATEMENT
+________________________________________________________________________________
+
+Design and implement a distributed online auction system running on 4 independent
+nodes (laptops) communicating exclusively via RPC in an asynchronous message-passing
+environment.
+
+The system must:
+  - Ensure consistent agreement on the highest bid
+  - Prevent concurrent conflicting updates
+  - Tolerate leader and participant failures
+  - Recover using coordinated checkpointing (Koo-Toueg)
+  - Detect transaction termination
+  - Use majority-based consensus for committing bids
+  - Maintain replica consistency across all nodes
+
+The system is a simplified distributed transaction manager conceptually inspired
+by Google Spanner and Amazon Aurora.
+
+
+2. SYSTEM MODEL
+________________________________________________________________________________
+
+  - Asynchronous distributed system (no global clock assumption)
+  - Message-passing communication via Go net/rpc over HTTP
+  - Crash-stop failure model (nodes may crash at any time)
+  - No shared memory (shared-nothing architecture)
+  - Logical clock-based event ordering (Lamport timestamps)
+  - Majority quorum: 3 out of 4 nodes required for commit
+
+
+3. CONCEPTS COVERED (MAPPED TO SYLLABUS)
+________________________________________________________________________________
+
+
+A. Models of Computation
+________________________
+
+  IMPLEMENTED:
+    - Shared-nothing architecture (each node is an independent process)
+    - Message-passing system (all communication via RPC)
+    - Asynchronous system behaviour (no timing assumptions)
+    - RPC-based communication (Go net/rpc over HTTP/TCP)
+
+  SOURCE FILES: node/client.go, node/node.go, main.go
+
+
+B. Logical Time & Event Ordering
+_________________________________
+
+  ALGORITHM: Lamport Logical Clocks
+
+  IMPLEMENTED:
+    - LamportClock type with Tick(), Update(receivedTime), Get() methods
+    - Every outgoing RPC includes the sender's Lamport timestamp
+    - Every incoming RPC calls Update() to enforce the "max + 1" rule
+    - Bids are ordered by Lamport time; ties are broken by Node ID
+    - Transaction IDs embed Lamport time for total ordering (e.g. "Node4-42")
+
+  PURPOSE:
+    - Resolve simultaneous bids deterministically
+    - Maintain consistent causal ordering of events across nodes
+
+  SOURCE FILES: node/state.go (LamportClock), node/bid.go (timestamped txns)
+
+
+C. Distributed Mutual Exclusion
+________________________________
+
+  ALGORITHM: Ricart-Agrawala
+
+  IMPLEMENTED:
+    - RequestCS(): broadcasts REQUEST to all peers, waits for all REPLY messages
+    - ReceiveRequest(): compares timestamps; defers reply if own request has priority
+    - ReleaseCS(): sends deferred replies to all queued requesters
+    - HandleRARequest (RPC): receives requests from remote nodes
+    - HandleRADeferredReply (RPC): receives deferred replies
+
+  USED FOR:
+    - Preventing simultaneous bid processing (only one 2PC at a time)
+    - Serializing item additions and auction control operations
+
+  PROPERTIES:
+    - Fairness (timestamp-ordered priority)
+    - No centralized lock server
+    - Deadlock-free (total ordering by Lamport time + Node ID)
+
+  SOURCE FILES: node/ricart_agrawala.go, node/rpc.go
+
+
+D. Leader Election
+__________________
+
+  ALGORITHM: Bully Algorithm
+
+  IMPLEMENTED:
+    - StartElection(): sends ELECTION to all higher-ranked peers; if no OK
+      received within 2 seconds, declares itself coordinator
+    - HandleElection (RPC): replies OK if own rank is higher, then starts own
+      election to propagate upward
+    - HandleCoordinator (RPC): accepts the new leader announcement
+    - BroadcastHeartbeats(): coordinator sends heartbeats every 1 second
+    - MonitorLeader(): followers detect 3-second heartbeat timeout and trigger
+      re-election
+    - OnBecomeCoordinator(): resumes item timer and queue progression
+
+  USED FOR:
+    - Electing the coordinator node (drives 2PC, checkpointing, queue)
+    - Replacing a failed leader with the next highest-ranked node
+    - Maintaining liveness guarantee
+
+  RANK DERIVATION:
+    - Node ID "Node4" -> rank 4 (highest rank wins)
+    - Rank parsed automatically from the ID suffix in main.go
+
+  SOURCE FILES: node/bully.go, main.go
+
+
+E. Consensus & Agreement Problem
+_________________________________
+
+  STYLE: Majority Quorum-Based Agreement via Two-Phase Commit
+
+  IMPLEMENTED:
+    - ProposeBid() runs the full 2PC protocol as coordinator
+    - Phase 1 (PREPARE): coordinator sends PrepareArgs to all peers; each votes
+      yes/no based on whether the bid is valid and higher than current
+    - Phase 2 (DECIDE): if votes >= quorum (3/4), coordinator applies COMMIT
+      locally and broadcasts DecisionArgs; otherwise ABORT
+    - Each participant applies the decision and sends ACK
+
+  QUORUM LOGIC:
+    - quorum = (len(peers)+1)/2 + 1 = 3 (for 4 nodes)
+    - Coordinator's own vote counts as 1
+
+  PROPERTIES DEMONSTRATED:
+    - Agreement problem (all nodes agree on bid outcome)
+    - Strong consistency model (linearizable updates)
+    - Blocking problem of 2PC (coordinator failure blocks participants)
+
+  SOURCE FILES: node/bid.go, node/rpc.go
+
+
+F. Commit Protocol (Two-Phase Commit)
+______________________________________
+
+  IMPLEMENTED:
+
+  Phase 1 — PREPARE (Voting):
+    - Coordinator sends PrepareArgs{TxnID, Bid, Timestamp} to all peers
+    - Each peer validates the bid and replies with Vote=true/false
+    - Coordinator collects votes with a 2.5-second timeout
+    - Missing/timed-out votes count as NO
+
+  Phase 2 — COMMIT or ABORT:
+    - If votes >= quorum: COMMIT; broadcast DecisionArgs{Commit=true}
+    - If votes < quorum: ABORT; broadcast DecisionArgs{Commit=false}
+    - Each participant applies the decision to local state
+    - Coordinator tracks ACKs (see Termination Detection below)
+
+  PROPERTIES:
+    - Atomicity (commit or abort — never partial)
+    - Consistency (quorum ensures majority agreement)
+    - Pending transaction cleanup (stale prepared txns auto-abort after 8s)
+
+  SOURCE FILES: node/bid.go (ProposeBid, applyDecision, canPrepareBid),
+                node/rpc.go (PrepareBid, DecideBid handlers)
+
+
+G. Fault Tolerance
+__________________
+
+  IMPLEMENTED:
+    - Crash-stop model with recovery from checkpoint
+    - Leader re-election via Bully algorithm on heartbeat timeout
+    - Transaction logs for audit and recovery (JSONL format)
+    - Coordinated checkpointing with Koo-Toueg algorithm
+    - Timeout detection in RPC calls (vote wait, ACK wait)
+    - Stale transaction cleanup (auto-abort after 8-second TTL)
+
+  FAILURE SCENARIOS HANDLED:
+    - Leader crash before commit: followers detect timeout, elect new leader
+    - Participant crash during voting: vote counts as NO; quorum may still hold
+    - Participant crash after commit: coordinator retries DecideBid up to 5 times
+    - Network delay/partition: majority partition continues; minority cannot form
+      quorum
+
+  SOURCE FILES: node/bully.go (election, heartbeat), node/bid.go (retry logic),
+                node/checkpoint.go (recovery), node/txnlog.go (audit trail)
+
+
+H. Coordinated Checkpointing — Koo-Toueg Algorithm
+____________________________________________________
+
+  ALGORITHM: Koo-Toueg (dependency-driven coordinated checkpointing)
+
+  IMPLEMENTED:
+
+  Dependency Tracking:
+    - Every outgoing RPC call uses callPeer() which records the target address
+      in Dependencies map[string]bool
+    - dependencySnapshot() returns the current snapshot of communication deps
+    - clearDependenciesForParticipants() clears deps after a committed round
+
+  Tentative Phase:
+    - Coordinator calls initiateGlobalCheckpoint() -> handleKTTentativeRequest()
+    - Node takes a tentative checkpoint (saved as checkpoint_NodeX_<roundID>.tentative.json)
+    - Node sends HandleKTTentativeCheckpoint RPC to all nodes in its dependency set
+    - Each receiver tentatively checkpoints and RECURSIVELY propagates to its own
+      dependencies that haven't been visited yet (tracked via Visited[] slice)
+    - This ensures the checkpoint set includes ALL causally related nodes
+
+  Finalize Phase:
+    - If all tentative requests succeed: coordinator commits locally, then
+      broadcasts HandleKTFinalizeCheckpoint{Commit=true} to all participants
+    - Each node atomically promotes tentative file to stable checkpoint
+    - If any tentative request fails: ABORT is broadcast; tentative files deleted
+    - Dependencies for committed participants are cleared
+
+  Serialization:
+    - CkptMutex + CkptInFlight flag ensures only ONE checkpoint round runs at a
+      time, preventing file rename conflicts between overlapping rounds
+
+  CHECKPOINT DATA (checkpoints/checkpoint_NodeX.json):
+    - NodeID, LamportTime, LamportStamp
+    - CurrentItem, RemainingQueue, Results
+    - CurrentHighestBid, CurrentWinner, DeadlineUnix, Active
+    - PendingTxns (map of prepared-but-undecided transactions)
+    - CheckpointTime (wall-clock Unix)
+
+  TRIGGERS:
+    - Every 30 seconds (periodic timer, coordinator only)
+    - After item transition (new item started / item finalized)
+    - After auction restart or item addition
+
+  RECOVERY:
+    - On startup, loadCheckpoint() reads the stable checkpoint file
+    - Lamport clock, auction state, and pending transactions are restored
+    - Node rejoins cluster and syncs with coordinator via periodicStateSync()
+
+  SOURCE FILES: node/checkpoint.go, node/dependency.go, node/rpc.go
+                (HandleKTTentativeCheckpoint, HandleKTFinalizeCheckpoint)
+
+
+I. Termination Detection
+_________________________
+
+  IMPLEMENTED:
+    - After Phase 2 COMMIT, coordinator collects ACKs from all participants
+    - broadcastDecisionAndCollectAcks() sends DecideBid to all peers with a
+      2.5-second timeout
+    - If all ACKs received: log TXN_TERMINATED (transaction globally complete)
+    - If some ACKs missing: log TXN_TERMINATION_PENDING, spawn retryDecisionUntilAllAcked()
+    - Retry loop: up to 5 attempts with 2-second intervals
+    - Final status logged as TXN_TERMINATED (success) or TXN_TERMINATION_INCOMPLETE (failure)
+
+  PROPERTIES:
+    - Distributed termination detection (coordinator confirms all applied)
+    - Completion guarantees (best-effort with bounded retries)
+    - Durable evidence via transaction log
+
+  SOURCE FILES: node/bid.go (broadcastDecisionAndCollectAcks, retryDecisionUntilAllAcked)
+
+
+J. Replica Management & Consistency
+____________________________________
+
+  IMPLEMENTED:
+    - All 4 nodes maintain replicated auction state (item queue, results, bids)
+    - Coordinator pushes state via broadcastQueueState() after every state change
+    - Followers pull state via periodicStateSync() every 2 seconds
+    - Commit only on majority agreement (quorum of 3/4)
+    - Results list uses monotonic append (followers accept if leader has more)
+
+  CONSISTENCY TYPE:
+    - Linearizable updates via quorum commit (strongly consistent for bids)
+    - Eventual consistency for queue state propagation (2-second sync lag)
+
+  SOURCE FILES: node/queue.go (broadcastQueueState, periodicStateSync,
+                applyQueueSnapshot, buildQueueSnapshot)
+
+
+K. Concurrency Control
+______________________
+
+  IMPLEMENTED:
+    - Ricart-Agrawala mutual exclusion ensures only one 2PC runs at a time
+    - Lamport clock ordering ensures deterministic processing order
+    - Anti-snipe mechanism: bids within 15 seconds of deadline extend the timer
+    - All shared state protected by sync.Mutex (Queue.mu, TxnMutex, etc.)
+
+  EQUIVALENT TO:
+    - Strict serializable execution (one transaction at a time, totally ordered)
+
+  SOURCE FILES: node/ricart_agrawala.go, node/queue.go (maybeExtendDeadline)
+
+
+L. Fault Recovery
+_________________
+
+  IMPLEMENTED:
+
+  Upon node restart:
+    1. Load checkpoint (checkpoints/checkpoint_NodeX.json)
+    2. Restore Lamport clock, auction state, pending transactions
+    3. Rejoin cluster (start listening, connect to peers)
+    4. MonitorLeader() triggers election to discover or become coordinator
+    5. periodicStateSync() pulls latest state from coordinator every 2 seconds
+    6. Resume normal operation
+
+  Stale Transaction Cleanup:
+    - abortStalePreparedTxns() runs every 1 second
+    - Any prepared txn older than 8 seconds without a decision is auto-aborted
+    - Prevents zombie prepared state after coordinator crash
+
+  SOURCE FILES: node/node.go (NewNode, Start), node/checkpoint.go (loadCheckpoint),
+                node/bid.go (abortStalePreparedTxns)
+
+
+M. Cloud & Distributed System Concepts
+_______________________________________
+
+  DEMONSTRATED:
+    - Cluster-style architecture (4-node homogeneous cluster)
+    - Coordinator-based transaction manager (leader drives 2PC)
+    - Replicated state machine (all nodes converge on same state)
+    - Dependency-aware checkpointing (Koo-Toueg)
+    - Durable audit trail (JSONL transaction logs)
+
+  CONCEPTUALLY INSPIRED BY:
+    - Google Spanner (coordinator-based consensus, strict serializability)
+    - Amazon Aurora (replicated transaction state, quorum writes)
+
+
+4. SOURCE FILE REFERENCE
+________________________________________________________________________________
+
+  main.go                   Entry point. Parses --id, --host, --port, --peers
+                            flags. Derives rank from Node ID. Creates and starts
+                            the Node. Launches MonitorLeader in background.
+
+  node/state.go             Core domain types:
+                              - AuctionItem (ID, Name, Description, Emoji,
+                                StartingPrice, DurationSec)
+                              - ItemResult (Item, Winner, WinningBid)
+                              - ItemQueueState (mutex-protected auction state)
+                              - LamportClock (Tick, Update, Get)
+
+  node/node.go              Node struct with all coordination state. NewNode()
+                            constructor restores from checkpoint. Start() launches
+                            HTTP server, periodic checkpointing, state sync, and
+                            stale txn cleanup. sanitizePeers() removes self and
+                            duplicates from the peer list.
+
+  node/bully.go             Bully election: StartElection, BroadcastHeartbeats,
+                            MonitorLeader, OnBecomeCoordinator. Handlers:
+                            HandleElection, HandleCoordinator, HandleHeartbeat.
+
+  node/ricart_agrawala.go   Ricart-Agrawala mutual exclusion: RAManager with
+                            RequestCS, HandleRAReply, ReceiveRequest, ReleaseCS.
+
+  node/bid.go               Two-Phase Commit: ProposeBid (full 2PC with RA mutex),
+                            canPrepareBid, rememberPendingTxn, applyDecision,
+                            broadcastDecisionAndCollectAcks,
+                            retryDecisionUntilAllAcked, abortStalePreparedTxns.
+
+  node/rpc.go               All RPC message types (BidArgs, PrepareArgs,
+                            DecisionArgs, KTTentativeArgs, KTFinalizeArgs, etc.)
+                            and handler methods (PrepareBid, DecideBid,
+                            HandleKTTentativeCheckpoint, HandleKTFinalizeCheckpoint,
+                            HandleRARequest, HandleRADeferredReply, etc.)
+
+  node/client.go            RPCClient: thin wrapper over Go net/rpc.DialHTTP.
+
+  node/dependency.go        Communication dependency tracking for Koo-Toueg:
+                            markDependency, dependencySnapshot,
+                            clearDependenciesForParticipants. callPeer() wraps
+                            Client.Call and auto-records dependencies.
+
+  node/checkpoint.go        Koo-Toueg checkpointing engine: buildCheckpointData,
+                            takeTentativeCheckpoint, commitTentativeCheckpoint,
+                            abortTentativeCheckpoint, beginKTRound,
+                            handleKTTentativeRequest (recursive propagation),
+                            finalizeKTRound, initiateGlobalCheckpoint (serialized),
+                            runPeriodicCheckpointing (30s timer).
+
+  node/txnlog.go            Durable JSONL transaction log: logTxnEvent writes
+                            timestamped entries to txlogs/txn_NodeX.log.
+
+  node/queue.go             Item queue management: defaultItems (6 seeded items),
+                            startNextItem, runItemTimer, finalizeCurrentItemLocked,
+                            maybeExtendDeadline (anti-snipe), broadcastQueueState,
+                            periodicStateSync, addItemAndBroadcast,
+                            startAuctionAndBroadcast, restartAuctionAndBroadcast.
+
+  node/handlers.go          HTTP handlers: handleBidRequest (forwards to
+                            coordinator if follower), handleStateRequest,
+                            handleAddItemRequest, handleAuctionControlRequest,
+                            handleCheckpointRequest.
+
+
+5. CONSTANTS & CONFIGURATION
+________________________________________________________________________________
+
+  voteWaitTimeout           2.5 seconds    Max wait during Phase 1 vote collection
+  decisionAckWaitTimeout    2.5 seconds    Max wait for Phase 2 ACKs
+  decisionAckRetryInterval  2 seconds      Delay between ACK retry attempts
+  decisionAckMaxRetries     5              Max retries for missing ACKs
+  preparedTxnTTL            8 seconds      Auto-abort stale prepared transactions
+  checkpointInterval        30 seconds     Periodic Koo-Toueg checkpoint frequency
+  checkpointAckTimeout      6 seconds      Max wait for finalize ACKs
+  antiSnipeWindow           15 seconds     Deadline extension on late bids
+  heartbeat interval        1 second       Leader heartbeat broadcast frequency
+  heartbeat timeout         3 seconds      Follower triggers election after this
+  stateSync interval        2 seconds      Follower pulls state from coordinator
+

@@ -38,6 +38,19 @@ type Node struct {
 	TxnMutex      sync.Mutex
 	PendingTxns   map[string]PendingTxn
 	TxnLogMutex   sync.Mutex
+	DepMutex      sync.Mutex
+	Dependencies  map[string]bool
+	KTMutex       sync.Mutex
+	KTRounds      map[string]*KTRoundState
+	CkptMutex     sync.Mutex
+	CkptInFlight  bool
+}
+
+type KTRoundState struct {
+	TentativeTaken bool
+	Participants   map[string]bool
+	Finalized      bool
+	Committed      bool
 }
 
 type PendingTxn struct {
@@ -53,7 +66,7 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 	peers = sanitizePeers(peers, address)
 	clock := &LamportClock{}
 	client := &RPCClient{}
-	ra := NewRAManager(id, peers, clock, client)
+	ra := NewRAManager(id, address, peers, clock, client)
 	restoredPending := map[string]PendingTxn{}
 
 	// Try to restore from a previously saved checkpoint.
@@ -95,6 +108,8 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 		Rank:        rank,
 		LeaderChan:  make(chan bool),
 		PendingTxns: restoredPending,
+		Dependencies: map[string]bool{},
+		KTRounds:     map[string]*KTRoundState{},
 	}
 }
 

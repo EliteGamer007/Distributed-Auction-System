@@ -39,7 +39,7 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 	for _, peer := range n.Peers {
 		go func(p string) {
 			var vote PrepareReply
-			err := n.Client.Call(p, "NodeRPC.PrepareBid",
+			err := n.callPeer(p, "NodeRPC.PrepareBid",
 				PrepareArgs{TxnID: txnID, Bid: txnBid, Timestamp: n.Clock.Tick()}, &vote)
 			if err != nil {
 				voteCh <- voteResult{yes: false}
@@ -83,7 +83,7 @@ func (n *Node) ProposeBid(amount int, bidder string) (bool, string) {
 		for _, peer := range n.Peers {
 			go func(p string) {
 				var ack bool
-				_ = n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
+				_ = n.callPeer(p, "NodeRPC.DecideBid", decision, &ack)
 			}(peer)
 		}
 		log.Printf("[%s] Txn %s aborted (votes=%d, quorum=%d)\n", n.ID, txnID, votes, quorum)
@@ -183,7 +183,7 @@ func (n *Node) broadcastDecisionAndCollectAcks(txnID string, decision DecisionAr
 		missing[peer] = true
 		go func(p string) {
 			var ack bool
-			err := n.Client.Call(p, "NodeRPC.DecideBid", decision, &ack)
+			err := n.callPeer(p, "NodeRPC.DecideBid", decision, &ack)
 			ackCh <- ackResult{peer: p, ack: err == nil && ack}
 		}(peer)
 	}
@@ -221,7 +221,7 @@ func (n *Node) retryDecisionUntilAllAcked(txnID string, decision DecisionArgs, m
 		nextRemaining := make([]string, 0, len(remaining))
 		for _, peer := range remaining {
 			var ack bool
-			err := n.Client.Call(peer, "NodeRPC.DecideBid", decision, &ack)
+			err := n.callPeer(peer, "NodeRPC.DecideBid", decision, &ack)
 			if err == nil && ack {
 				n.logTxnEvent(txnID, "TXN_DECIDE_ACK_RETRY", fmt.Sprintf("peer=%s attempt=%d", peer, attempt))
 				continue

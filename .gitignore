@@ -1,8 +1,6 @@
 checkpoints/
 node*.log
 node*.last.log
-<<<<<<< HEAD
 txlogs/
-=======
 auction_node
->>>>>>> 47de212335e5efc95250913838e2a64f50971a96
+auction_node.exe

@@ -1,15 +1,15 @@
 package node
 
-// checkpoint.go — Coordinated checkpointing.
+// checkpoint.go — Koo-Toueg-style coordinated checkpointing.
 //
-// Algorithm (coordinator-initiated):
-//  1. Coordinator snapshots its own state to disk.
-//  2. Coordinator broadcasts TakeCheckpoint RPC to all followers.
-//  3. Each follower snapshots its own state and ACKs.
-//  4. Coordinator logs completion with the global Lamport timestamp.
-//
-// On startup, every node reads its checkpoint file and restores state
-// before falling back to the default item seed list.
+// Round flow (initiator/coordinator driven):
+//  1) Tentative phase: initiator takes tentative checkpoint and sends request
+//     to nodes in its dependency set.
+//  2) Propagation: each receiver tentatively checkpoints and recursively
+//     requests all dependencies not already visited in the round.
+//  3) Finalize phase: if all tentative requests ACK, initiator broadcasts
+//     COMMIT (otherwise ABORT) to all round participants.
+//  4) Commit moves tentative file atomically to stable checkpoint file.
 
 import (
 	"encoding/json"
@@ -23,7 +23,7 @@ import (
 const (
 	checkpointDir        = "checkpoints"
 	checkpointInterval   = 30 * time.Second
-	checkpointAckTimeout = 5 * time.Second
+	checkpointAckTimeout = 6 * time.Second
 )
 
 // CheckpointData is the full serialisable state of a node, written to disk.
@@ -52,12 +52,15 @@ func checkpointPath(nodeID string) string {
 	return filepath.Join(checkpointDir, fmt.Sprintf("checkpoint_%s.json", nodeID))
 }
 
+func tentativeCheckpointPath(nodeID, roundID string) string {
+	return filepath.Join(checkpointDir, fmt.Sprintf("checkpoint_%s_%s.tentative.json", nodeID, roundID))
+}
+
 // saveCheckpoint writes data to checkpoints/<NodeID>.json atomically.
-func saveCheckpoint(data CheckpointData) error {
+func saveCheckpointToPath(path string, data CheckpointData) error {
 	if err := os.MkdirAll(checkpointDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir checkpoints: %w", err)
 	}
-	path := checkpointPath(data.NodeID)
 	tmp := path + ".tmp"
 
 	b, err := json.MarshalIndent(data, "", "  ")
@@ -72,6 +75,10 @@ func saveCheckpoint(data CheckpointData) error {
 		return fmt.Errorf("rename checkpoint: %w", err)
 	}
 	return nil
+}
+
+func saveCheckpoint(data CheckpointData) error {
+	return saveCheckpointToPath(checkpointPath(data.NodeID), data)
 }
 
 // loadCheckpoint reads checkpoints/<nodeID>.json.
@@ -92,8 +99,7 @@ func loadCheckpoint(nodeID string) (*CheckpointData, error) {
 	return &data, nil
 }
 
-// takeLocalCheckpoint snapshots this node's current state and saves it to disk.
-func (n *Node) takeLocalCheckpoint() error {
+func (n *Node) buildCheckpointData() CheckpointData {
 	n.Queue.mu.Lock()
 	data := CheckpointData{
 		NodeID:            n.ID,
@@ -123,6 +129,13 @@ func (n *Node) takeLocalCheckpoint() error {
 	}
 	n.TxnMutex.Unlock()
 
+	return data
+}
+
+// takeLocalCheckpoint snapshots this node's current state and saves it to disk.
+func (n *Node) takeLocalCheckpoint() error {
+	data := n.buildCheckpointData()
+
 	if err := saveCheckpoint(data); err != nil {
 		return err
 	}
@@ -131,8 +144,165 @@ func (n *Node) takeLocalCheckpoint() error {
 	return nil
 }
 
+func (n *Node) takeTentativeCheckpoint(roundID string) error {
+	data := n.buildCheckpointData()
+	if err := saveCheckpointToPath(tentativeCheckpointPath(n.ID, roundID), data); err != nil {
+		return err
+	}
+	log.Printf("[%s] 📝 Tentative checkpoint taken (round=%s)\n", n.ID, roundID)
+	return nil
+}
+
+func (n *Node) commitTentativeCheckpoint(roundID string) error {
+	tentative := tentativeCheckpointPath(n.ID, roundID)
+	finalPath := checkpointPath(n.ID)
+
+	if _, err := os.Stat(tentative); os.IsNotExist(err) {
+		return nil
+	}
+	tmp := finalPath + ".tmp"
+
+	b, err := os.ReadFile(tentative)
+	if err != nil {
+		return fmt.Errorf("read tentative: %w", err)
+	}
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return fmt.Errorf("write final tmp: %w", err)
+	}
+	if err := os.Rename(tmp, finalPath); err != nil {
+		return fmt.Errorf("rename final checkpoint: %w", err)
+	}
+	_ = os.Remove(tentative)
+	log.Printf("[%s] ✅ Committed checkpoint round=%s\n", n.ID, roundID)
+	return nil
+}
+
+func (n *Node) abortTentativeCheckpoint(roundID string) {
+	_ = os.Remove(tentativeCheckpointPath(n.ID, roundID))
+	log.Printf("[%s] ❌ Aborted tentative checkpoint round=%s\n", n.ID, roundID)
+}
+
+func (n *Node) beginKTRound(roundID string) (*KTRoundState, bool) {
+	n.KTMutex.Lock()
+	defer n.KTMutex.Unlock()
+	if existing, ok := n.KTRounds[roundID]; ok {
+		return existing, false
+	}
+	state := &KTRoundState{Participants: map[string]bool{n.Address: true}}
+	n.KTRounds[roundID] = state
+	return state, true
+}
+
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func sliceToSet(values []string) map[string]bool {
+	set := map[string]bool{}
+	for _, v := range values {
+		set[v] = true
+	}
+	return set
+}
+
+func (n *Node) handleKTTentativeRequest(args KTTentativeArgs) (bool, []string, string) {
+	n.Clock.Update(args.LamportTime)
+
+	state, isNewRound := n.beginKTRound(args.RoundID)
+	if isNewRound {
+		if err := n.takeTentativeCheckpoint(args.RoundID); err != nil {
+			return false, nil, err.Error()
+		}
+		state.TentativeTaken = true
+	}
+
+	visited := sliceToSet(args.Visited)
+	visited[n.Address] = true
+
+	deps := n.dependencySnapshot()
+	participants := map[string]bool{n.Address: true}
+
+	for _, dep := range deps {
+		if visited[dep] {
+			continue
+		}
+		nextVisited := mapKeys(visited)
+		nextVisited = append(nextVisited, dep)
+
+		var reply KTTentativeReply
+		err := n.callPeer(dep, "NodeRPC.HandleKTTentativeCheckpoint", KTTentativeArgs{
+			RoundID:    args.RoundID,
+			Initiator:  args.Initiator,
+			LamportTime: n.Clock.Get(),
+			From:       n.Address,
+			Visited:    nextVisited,
+		}, &reply)
+		if err != nil || !reply.OK {
+			n.abortTentativeCheckpoint(args.RoundID)
+			return false, nil, fmt.Sprintf("dependency %s failed tentative checkpoint", dep)
+		}
+		for _, p := range reply.Participants {
+			participants[p] = true
+		}
+	}
+
+	n.KTMutex.Lock()
+	for p := range participants {
+		state.Participants[p] = true
+	}
+	n.KTMutex.Unlock()
+
+	return true, mapKeys(participants), ""
+}
+
+func (n *Node) finalizeKTRound(roundID string, commit bool) {
+	n.KTMutex.Lock()
+	state, ok := n.KTRounds[roundID]
+	if !ok || state.Finalized {
+		n.KTMutex.Unlock()
+		return
+	}
+	participants := map[string]bool{}
+	for p := range state.Participants {
+		participants[p] = true
+	}
+	state.Finalized = true
+	state.Committed = commit
+	n.KTMutex.Unlock()
+
+	if commit {
+		if err := n.commitTentativeCheckpoint(roundID); err != nil {
+			log.Printf("[%s] ⚠️ commit tentative failed (round=%s): %v\n", n.ID, roundID, err)
+		}
+		n.clearDependenciesForParticipants(participants)
+	} else {
+		n.abortTentativeCheckpoint(roundID)
+	}
+
+	n.KTMutex.Lock()
+	delete(n.KTRounds, roundID)
+	n.KTMutex.Unlock()
+}
+
 // initiateGlobalCheckpoint is called by the coordinator to checkpoint all nodes.
 func (n *Node) initiateGlobalCheckpoint() {
+	n.CkptMutex.Lock()
+	if n.CkptInFlight {
+		n.CkptMutex.Unlock()
+		return
+	}
+	n.CkptInFlight = true
+	n.CkptMutex.Unlock()
+	defer func() {
+		n.CkptMutex.Lock()
+		n.CkptInFlight = false
+		n.CkptMutex.Unlock()
+	}()
+
 	n.ElectionMutex.Lock()
 	isCoordinator := n.Coordinator == n.ID
 	n.ElectionMutex.Unlock()
@@ -141,53 +311,66 @@ func (n *Node) initiateGlobalCheckpoint() {
 	}
 
 	lamport := n.Clock.Tick()
-	log.Printf("[%s] 🟢 Initiating global checkpoint at Lamport=%d\n", n.ID, lamport)
+	roundID := fmt.Sprintf("%s-%d", n.ID, lamport)
+	log.Printf("[%s] 🟢 Koo-Toueg checkpoint round start: %s\n", n.ID, roundID)
 
-	// Step 1: save coordinator's own state.
-	if err := n.takeLocalCheckpoint(); err != nil {
-		log.Printf("[%s] ⚠️  Local checkpoint failed: %v\n", n.ID, err)
+	ok, participants, reason := n.handleKTTentativeRequest(KTTentativeArgs{
+		RoundID:    roundID,
+		Initiator:  n.ID,
+		LamportTime: lamport,
+		From:       n.Address,
+		Visited:    []string{n.Address},
+	})
+
+	participantSet := sliceToSet(participants)
+	if !ok {
+		log.Printf("[%s] ⚠️ Koo-Toueg tentative phase failed: %s\n", n.ID, reason)
+		n.finalizeKTRound(roundID, false)
+		return
 	}
 
-	// Step 2: ask all followers to checkpoint simultaneously.
-	type ackResult struct {
-		peer    string
-		lamport int
-		err     error
-	}
-	ackCh := make(chan ackResult, len(n.Peers))
-	args := TakeCheckpointArgs{InitiatorID: n.ID, LamportTime: lamport}
+	n.finalizeKTRound(roundID, true)
 
-	for _, peer := range n.Peers {
+	type finalizeResult struct {
+		peer string
+		err  error
+	}
+	finalizeCh := make(chan finalizeResult, len(participantSet))
+	for peer := range participantSet {
+		if peer == n.Address {
+			continue
+		}
 		go func(p string) {
-			var reply TakeCheckpointReply
-			err := n.Client.Call(p, "NodeRPC.TakeCheckpoint", args, &reply)
-			if err == nil && !reply.OK {
-				err = fmt.Errorf("%s", reply.Error)
+			var ack bool
+			err := n.callPeer(p, "NodeRPC.HandleKTFinalizeCheckpoint", KTFinalizeArgs{RoundID: roundID, Commit: true}, &ack)
+			if err != nil || !ack {
+				finalizeCh <- finalizeResult{peer: p, err: fmt.Errorf("finalize failed")}
+				return
 			}
-			ackCh <- ackResult{peer: p, lamport: reply.LamportStamp, err: err}
+			finalizeCh <- finalizeResult{peer: p, err: nil}
 		}(peer)
 	}
 
-	// Step 3: collect ACKs with timeout.
 	timer := time.NewTimer(checkpointAckTimeout)
 	defer timer.Stop()
-	acks := 0
-	for acks < len(n.Peers) {
+	remaining := len(participantSet) - 1
+	for remaining > 0 {
 		select {
-		case res := <-ackCh:
+		case res := <-finalizeCh:
+			remaining--
 			if res.err != nil {
-				log.Printf("[%s] ⚠️  Checkpoint NACK from %s: %v\n", n.ID, res.peer, res.err)
+				log.Printf("[%s] ⚠️ Koo-Toueg finalize NACK from %s\n", n.ID, res.peer)
 			} else {
-				acks++
-				log.Printf("[%s] ✅ Checkpoint ACK from %s (lamport=%d)\n", n.ID, res.peer, res.lamport)
+				log.Printf("[%s] ✅ Koo-Toueg finalize ACK from %s\n", n.ID, res.peer)
 			}
 		case <-timer.C:
-			log.Printf("[%s] ⚠️  Checkpoint timed out (%d/%d ACKs)\n", n.ID, acks, len(n.Peers))
-			return
+			log.Printf("[%s] ⚠️ Koo-Toueg finalize timed out with %d pending\n", n.ID, remaining)
+			remaining = 0
 		}
 	}
-	log.Printf("[%s] 🏁 Global checkpoint complete — %d nodes saved (lamport=%d)\n",
-		n.ID, len(n.Peers)+1, lamport)
+
+	log.Printf("[%s] 🏁 Koo-Toueg checkpoint round committed: %s participants=%d\n",
+		n.ID, roundID, len(participantSet))
 }
 
 // runPeriodicCheckpointing triggers a global checkpoint every 30s (coordinator only).

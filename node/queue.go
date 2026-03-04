@@ -129,7 +129,7 @@ func (n *Node) broadcastQueueState() {
 	for _, peer := range n.Peers {
 		go func(p string) {
 			var ok bool
-			_ = n.Client.Call(p, "NodeRPC.SyncQueueState", snap, &ok)
+			_ = n.callPeer(p, "NodeRPC.SyncQueueState", snap, &ok)
 		}(peer)
 	}
 }
@@ -185,7 +185,7 @@ func (n *Node) periodicStateSync() {
 			continue
 		}
 		var snap QueueSnapshot
-		if err := n.Client.Call(coordinatorAddress, "NodeRPC.GetQueueState", EmptyArgs{}, &snap); err != nil {
+		if err := n.callPeer(coordinatorAddress, "NodeRPC.GetQueueState", EmptyArgs{}, &snap); err != nil {
 			continue
 		}
 		n.applyQueueSnapshot(snap)
@@ -193,7 +193,12 @@ func (n *Node) periodicStateSync() {
 }
 
 // OnBecomeCoordinator is called after a Bully election win to (re)start the item timer.
+// Before taking over, it polls all peers for the most recent state so a recovering
+// coordinator does not overwrite the cluster with stale checkpoint data.
 func (n *Node) OnBecomeCoordinator() {
+	// ── State reconciliation: adopt the most up-to-date peer state ──────────
+	n.reconcileStateFromPeers()
+
 	n.Queue.mu.Lock()
 	hasItem := n.Queue.CurrentItem != nil
 	deadlineSet := n.Queue.DeadlineUnix > 0
@@ -206,6 +211,7 @@ func (n *Node) OnBecomeCoordinator() {
 		itemID := n.Queue.CurrentItem.ID
 		deadline := n.Queue.DeadlineUnix
 		n.Queue.mu.Unlock()
+		n.broadcastQueueState()
 		go n.runItemTimer(itemID, deadline)
 
 	case hasItem:
@@ -222,6 +228,87 @@ func (n *Node) OnBecomeCoordinator() {
 	default:
 		n.startNextItem()
 	}
+}
+
+// reconcileStateFromPeers polls all peers for their QueueSnapshot and adopts the
+// best (most up-to-date) state. This prevents a recovering coordinator from
+// pushing stale checkpoint data onto followers.
+func (n *Node) reconcileStateFromPeers() {
+	type peerSnap struct {
+		peer string
+		snap QueueSnapshot
+	}
+
+	ch := make(chan *peerSnap, len(n.Peers))
+	for _, peer := range n.Peers {
+		go func(p string) {
+			var snap QueueSnapshot
+			err := n.callPeer(p, "NodeRPC.GetQueueState", EmptyArgs{}, &snap)
+			if err != nil {
+				ch <- nil
+				return
+			}
+			ch <- &peerSnap{peer: p, snap: snap}
+		}(peer)
+	}
+
+	// Collect with a short timeout
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	var best *QueueSnapshot
+	received := 0
+	for received < len(n.Peers) {
+		select {
+		case ps := <-ch:
+			received++
+			if ps == nil {
+				continue
+			}
+			if best == nil || snapshotIsBetter(&ps.snap, best) {
+				best = &ps.snap
+			}
+		case <-timer.C:
+			received = len(n.Peers)
+		}
+	}
+
+	if best == nil {
+		log.Printf("[%s] reconcileStateFromPeers: no peer responded, using local state\n", n.ID)
+		return
+	}
+
+	// Compare best peer state with our own local state
+	localSnap := n.buildQueueSnapshot()
+	if snapshotIsBetter(best, &localSnap) {
+		log.Printf("[%s] 🔄 Adopting newer state from peer (results=%d, highBid=%d)\n",
+			n.ID, len(best.Results), best.CurrentHighestBid)
+		n.applyQueueSnapshot(*best)
+	} else {
+		log.Printf("[%s] reconcileStateFromPeers: local state is up-to-date\n", n.ID)
+	}
+}
+
+// snapshotIsBetter returns true if candidate is more up-to-date than current.
+func snapshotIsBetter(candidate, current *QueueSnapshot) bool {
+	// More completed results is always better
+	if len(candidate.Results) > len(current.Results) {
+		return true
+	}
+	if len(candidate.Results) < len(current.Results) {
+		return false
+	}
+	// Same number of results: higher bid is better
+	if candidate.CurrentHighestBid > current.CurrentHighestBid {
+		return true
+	}
+	if candidate.CurrentHighestBid < current.CurrentHighestBid {
+		return false
+	}
+	// Tie: prefer the active auction
+	if candidate.Active && !current.Active {
+		return true
+	}
+	return false
 }
 
 func (n *Node) addItemAndBroadcast(name, description string, startingPrice, durationSec int) (bool, string) {

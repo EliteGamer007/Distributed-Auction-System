@@ -61,6 +61,25 @@ type TakeCheckpointReply struct {
 	Error        string
 }
 
+type KTTentativeArgs struct {
+	RoundID     string
+	Initiator   string
+	LamportTime int
+	From        string
+	Visited     []string
+}
+
+type KTTentativeReply struct {
+	OK           bool
+	Error        string
+	Participants []string
+}
+
+type KTFinalizeArgs struct {
+	RoundID string
+	Commit  bool
+}
+
 type QueueSnapshot struct {
 	CurrentItem       *AuctionItem
 	CurrentHighestBid int
@@ -198,6 +217,20 @@ func (rp *NodeRPC) TakeCheckpoint(args TakeCheckpointArgs, reply *TakeCheckpoint
 	}
 	reply.OK = true
 	reply.LamportStamp = rp.node.Clock.Get()
+	return nil
+}
+
+func (rp *NodeRPC) HandleKTTentativeCheckpoint(args KTTentativeArgs, reply *KTTentativeReply) error {
+	ok, participants, errMsg := rp.node.handleKTTentativeRequest(args)
+	reply.OK = ok
+	reply.Error = errMsg
+	reply.Participants = participants
+	return nil
+}
+
+func (rp *NodeRPC) HandleKTFinalizeCheckpoint(args KTFinalizeArgs, reply *bool) error {
+	rp.node.finalizeKTRound(args.RoundID, args.Commit)
+	*reply = true
 	return nil
 }
 

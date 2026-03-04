@@ -41,7 +41,7 @@ func (n *Node) handleBidRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		// Forward to coordinator
 		var reply CoordinatorBidReply
-		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitBidToCoordinator",
+		err := n.callPeer(coordinatorAddress, "NodeRPC.SubmitBidToCoordinator",
 			BidArgs{Amount: amount, Bidder: bidder}, &reply)
 		if err != nil {
 			http.Error(w, "Leader unavailable; retry shortly", http.StatusServiceUnavailable)
@@ -127,7 +127,7 @@ func (n *Node) handleAddItemRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var reply CoordinatorActionReply
-		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitAddItemToCoordinator",
+		err := n.callPeer(coordinatorAddress, "NodeRPC.SubmitAddItemToCoordinator",
 			AddItemArgs{Name: name, Description: description, StartingPrice: startingPrice, DurationSec: durationSec}, &reply)
 		if err != nil {
 			http.Error(w, "Leader unavailable; retry shortly", http.StatusServiceUnavailable)
@@ -192,7 +192,7 @@ func (n *Node) handleAuctionControlRequest(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		var reply CoordinatorActionReply
-		err := n.Client.Call(coordinatorAddress, "NodeRPC.SubmitAuctionControlToCoordinator",
+		err := n.callPeer(coordinatorAddress, "NodeRPC.SubmitAuctionControlToCoordinator",
 			AuctionControlArgs{Action: action}, &reply)
 		if err != nil {
 			http.Error(w, "Leader unavailable; retry shortly", http.StatusServiceUnavailable)

@@ -17,7 +17,7 @@ func (n *Node) StartElection() {
 	for _, peerAddress := range n.Peers {
 		go func(addr string) {
 			var ok bool
-			err := n.Client.Call(addr, "NodeRPC.HandleElection", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &ok)
+			err := n.callPeer(addr, "NodeRPC.HandleElection", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &ok)
 			if err == nil && ok {
 				n.ElectionMutex.Lock()
 				receivedOK = true
@@ -46,7 +46,7 @@ func (n *Node) StartElection() {
 		for _, peerAddress := range n.Peers {
 			go func(addr string) {
 				var dummy bool
-				err := n.Client.Call(addr, "NodeRPC.HandleCoordinator", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
+				err := n.callPeer(addr, "NodeRPC.HandleCoordinator", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
 				if err != nil {
 					log.Printf("[%s] Error sending Coordinator to %s: %v\n", n.ID, addr, err)
 				}
@@ -73,7 +73,7 @@ func (n *Node) BroadcastHeartbeats() {
 		for _, peerAddress := range n.Peers {
 			go func(addr string) {
 				var dummy bool
-				n.Client.Call(addr, "NodeRPC.HandleHeartbeat", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
+				n.callPeer(addr, "NodeRPC.HandleHeartbeat", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
 			}(peerAddress)
 		}
 
