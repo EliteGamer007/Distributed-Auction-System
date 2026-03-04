@@ -22,6 +22,8 @@ func (n *Node) StartElection() {
 				n.ElectionMutex.Lock()
 				receivedOK = true
 				n.ElectionMutex.Unlock()
+			} else if err != nil {
+				log.Printf("[%s] Error sending Election to %s: %v\n", n.ID, addr, err)
 			}
 		}(peerAddress)
 	}
@@ -44,7 +46,10 @@ func (n *Node) StartElection() {
 		for _, peerAddress := range n.Peers {
 			go func(addr string) {
 				var dummy bool
-				n.Client.Call(addr, "NodeRPC.HandleCoordinator", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
+				err := n.Client.Call(addr, "NodeRPC.HandleCoordinator", BullyMessage{NodeID: n.ID, Rank: n.Rank}, &dummy)
+				if err != nil {
+					log.Printf("[%s] Error sending Coordinator to %s: %v\n", n.ID, addr, err)
+				}
 			}(peerAddress)
 		}
 

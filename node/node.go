@@ -136,7 +136,10 @@ func (n *Node) getCoordinatorAddress() (string, bool) {
 	coordinatorID := n.Coordinator
 	n.ElectionMutex.Unlock()
 
-	if coordinatorID == "" || coordinatorID == n.ID {
+	if coordinatorID == "" {
+		return "", false
+	}
+	if coordinatorID == n.ID {
 		return n.Address, true
 	}
 

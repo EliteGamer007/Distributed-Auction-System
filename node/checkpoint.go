@@ -118,7 +118,7 @@ func (n *Node) takeLocalCheckpoint() error {
 // initiateGlobalCheckpoint is called by the coordinator to checkpoint all nodes.
 func (n *Node) initiateGlobalCheckpoint() {
 	n.ElectionMutex.Lock()
-	isCoordinator := n.Coordinator == "" || n.Coordinator == n.ID
+	isCoordinator := n.Coordinator == n.ID
 	n.ElectionMutex.Unlock()
 	if !isCoordinator {
 		return
@@ -180,7 +180,7 @@ func (n *Node) runPeriodicCheckpointing() {
 	defer ticker.Stop()
 	for range ticker.C {
 		n.ElectionMutex.Lock()
-		isCoordinator := n.Coordinator == "" || n.Coordinator == n.ID
+		isCoordinator := n.Coordinator == n.ID
 		n.ElectionMutex.Unlock()
 		if isCoordinator {
 			go n.initiateGlobalCheckpoint()

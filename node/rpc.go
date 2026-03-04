@@ -78,7 +78,7 @@ type QueueSnapshot struct {
 // SubmitBidToCoordinator is called by a follower to forward a bid to the leader.
 func (rp *NodeRPC) SubmitBidToCoordinator(args BidArgs, reply *CoordinatorBidReply) error {
 	rp.node.ElectionMutex.Lock()
-	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	isCoordinator := rp.node.Coordinator == rp.node.ID
 	rp.node.ElectionMutex.Unlock()
 
 	if !isCoordinator {
@@ -128,7 +128,7 @@ func (rp *NodeRPC) SyncQueueState(snap QueueSnapshot, reply *bool) error {
 
 func (rp *NodeRPC) SubmitAddItemToCoordinator(args AddItemArgs, reply *CoordinatorActionReply) error {
 	rp.node.ElectionMutex.Lock()
-	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	isCoordinator := rp.node.Coordinator == rp.node.ID
 	rp.node.ElectionMutex.Unlock()
 
 	if !isCoordinator {
@@ -145,7 +145,7 @@ func (rp *NodeRPC) SubmitAddItemToCoordinator(args AddItemArgs, reply *Coordinat
 
 func (rp *NodeRPC) SubmitAuctionControlToCoordinator(args AuctionControlArgs, reply *CoordinatorActionReply) error {
 	rp.node.ElectionMutex.Lock()
-	isCoordinator := rp.node.Coordinator == "" || rp.node.Coordinator == rp.node.ID
+	isCoordinator := rp.node.Coordinator == rp.node.ID
 	rp.node.ElectionMutex.Unlock()
 
 	if !isCoordinator {
