@@ -18,193 +18,194 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0a0f;
-      --surface: #13131a;
-      --surface2: #1c1c26;
-      --border: rgba(255,255,255,0.08);
-      --text: #f0f0f5;
-      --muted: #6b6b80;
-      --accent: #7c6aff;
-      --accent2: #a78bfa;
-      --green: #22c55e;
-      --yellow: #eab308;
-      --red: #ef4444;
-      --gold: #f59e0b;
-      --transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+      --bg: #000000;
+      --surface: rgba(28, 28, 30, 0.6);
+      --surface2: rgba(44, 44, 46, 0.4);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #ffffff;
+      --muted: #8e8e93;
+      --accent: #ffffff;
+      --accent2: #f2f2f7;
+      --green: #34c759;
+      --yellow: #ffcc00;
+      --red: #ff3b30;
+      --gold: #ffcc00;
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    * { margin:0; padding:0; box-sizing:border-box; }
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing: antialiased; }
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 24px 16px 48px;
-      -webkit-font-smoothing: antialiased;
+      padding: 48px 24px 80px;
+      line-height: 1.5;
+      background-image: radial-gradient(circle at 50%% -20%%, #1c1c1e 0%%, #000000 100%%);
     }
     header {
-      width: 100%%; max-width: 900px;
+      width: 100%%; max-width: 1000px;
       display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 32px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+      padding-bottom: 24px;
+      border-bottom: 0.5px solid var(--border);
     }
-    .logo { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; }
-    .logo span { color: var(--accent2); }
-    .node-badge {
-      font-size: 0.75rem; font-weight: 600;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 999px; padding: 4px 14px;
-      color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; color: white; }
+    .node-info { display: flex; align-items: center; gap: 12px; }
+    .leader-badge {
+      display: none;
+      font-size: 0.7rem; font-weight: 600;
+      background: rgba(52, 199, 89, 0.1);
+      border: 0.5px solid var(--green);
+      color: var(--green);
+      border-radius: 6px; padding: 4px 12px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     }
     .layout {
-      width: 100%%; max-width: 900px;
-      display: grid; grid-template-columns: 1fr 320px; gap: 20px;
+      width: 100%%; max-width: 1000px;
+      display: grid; grid-template-columns: 1fr 360px; gap: 32px;
     }
-    @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
-    /* Current Item Card */
     .current-card {
-      background: linear-gradient(135deg, #1a1730 0%%, #13131a 60%%);
-      border: 1px solid rgba(124,106,255,0.25);
-      border-radius: 24px; padding: 32px;
-      display: flex; flex-direction: column; gap: 24px;
-      box-shadow: 0 0 60px rgba(124,106,255,0.08);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%%, rgba(255, 255, 255, 0) 40%%), var(--surface);
+      border: 0.5px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px; padding: 40px;
+      display: flex; flex-direction: column; gap: 32px;
+      backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.05), 0 20px 50px rgba(0, 0, 0, 0.6);
+      position: relative; overflow: hidden;
     }
-    .item-emoji { font-size: 4rem; line-height: 1; margin-bottom: 4px; }
-    .item-name { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.03em; }
-    .item-desc { font-size: 0.95rem; color: var(--muted); margin-top: 4px; }
+    .current-card::after {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    }
+    .item-header { border-bottom: 0.5px solid var(--border); padding-bottom: 24px; }
+    .item-name { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.04em; color: white; }
+    .item-desc { font-size: 1.125rem; color: var(--muted); margin-top: 8px; font-weight: 400; }
 
-    /* Countdown */
-    .countdown-wrap { display: flex; flex-direction: column; gap: 8px; }
-    .countdown-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+    .countdown-wrap { display: flex; flex-direction: column; gap: 12px; }
+    .countdown-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
     .countdown {
-      font-size: 3.5rem; font-weight: 700; letter-spacing: -0.04em;
-      font-variant-numeric: tabular-nums; transition: color 0.5s;
+      font-size: 4rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
     }
-    .countdown.green { color: var(--green); }
+    .countdown.green { color: white; }
     .countdown.yellow { color: var(--yellow); }
-    .countdown.red { color: var(--red); animation: pulse 0.8s infinite; }
-    @keyframes pulse { 0%%,100%% { opacity:1; } 50%% { opacity:0.5; } }
+    .countdown.red { color: var(--red); }
 
-    .progress-bar-wrap { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
-    .progress-bar { height: 100%%; border-radius: 2px; transition: width 0.9s linear, background 0.5s; }
+    .progress-bar-wrap { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .progress-bar { height: 100%%; border-radius: 2px; transition: width 1s linear, background 0.3s; }
 
-    /* Bid info */
-    .bid-info { display: flex; gap: 20px; }
-    .stat { display: flex; flex-direction: column; gap: 4px; }
-    .stat-label { font-size: 0.72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-    .stat-value { font-size: 1.5rem; font-weight: 700; }
-    .stat-value.money { color: var(--accent2); }
-    .stat-value.winner { font-size: 1.1rem; color: var(--text); }
+    .bid-info { display: flex; gap: 48px; padding: 24px 0; }
+    .stat { display: flex; flex-direction: column; gap: 8px; }
+    .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .stat-value { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; }
+    .stat-value.money { color: white; }
+    .stat-value.winner { color: white; }
 
-    /* Bid form */
-    .bid-form { display: flex; flex-direction: column; gap: 12px; }
-    .input-row { display: flex; gap: 10px; }
+    .bid-form { display: flex; flex-direction: column; gap: 20px; margin-top: 12px; }
+    .input-row { display: flex; gap: 12px; }
     input[type=text], input[type=number] {
-      flex: 1; padding: 14px 18px;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 14px; color: var(--text);
+      flex: 1; padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.05); border: 0.5px solid var(--border);
+      border-radius: 12px; color: white;
       font-size: 1rem; font-family: inherit; outline: none;
       transition: var(--transition);
     }
     input[type=text]:focus, input[type=number]:focus {
-      border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,106,255,0.15);
+      background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.3);
     }
-    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
     .btn {
-      padding: 14px 28px; border-radius: 14px; border: none; cursor: pointer;
+      padding: 14px 28px; border-radius: 12px; border: none; cursor: pointer;
       font-size: 1rem; font-weight: 600; font-family: inherit;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      color: white; transition: var(--transition); white-space: nowrap;
+      background: #ffffff; color: #000000; transition: var(--transition);
+      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
     }
-    .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,106,255,0.35); }
-    .btn:active { transform: translateY(0); }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
-    #feedback { font-size: 0.88rem; font-weight: 500; min-height: 20px; transition: var(--transition); }
+    .btn:hover { background: #f2f2f7; transform: scale(1.02); box-shadow: 0 6px 20px rgba(255, 255, 255, 0.2); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+    #feedback { font-size: 0.9rem; font-weight: 500; min-height: 20px; text-align: center; }
     .err { color: var(--red); } .ok { color: var(--green); }
 
-    /* Auction ended */
     .ended-banner {
-      text-align: center; padding: 32px;
-      background: linear-gradient(135deg, #1a1a10, #13131a);
-      border: 1px solid rgba(245,158,11,0.25);
-      border-radius: 24px; color: var(--gold);
-      font-size: 1.5rem; font-weight: 700;
+      text-align: center; padding: 64px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent), var(--surface);
+      border: 0.5px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px; color: white;
+      font-size: 1.75rem; font-weight: 700;
+      backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
     }
 
-    /* Sidebar */
-    .sidebar { display: flex; flex-direction: column; gap: 20px; }
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 20px; }
-    .panel-title { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+    .sidebar { display: flex; flex-direction: column; gap: 32px; }
+    .panel { 
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent), var(--surface);
+      border: 0.5px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px; padding: 28px; 
+      backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.03), 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+    .panel-title { 
+      font-size: 0.75rem; font-weight: 700; color: var(--muted); 
+      text-transform: uppercase; letter-spacing: 0.1em; 
+      margin-bottom: 24px; border-bottom: 0.5px solid var(--border); 
+      padding-bottom: 12px; 
+    }
 
-    .queue-list { display: flex; flex-direction: column; gap: 10px; }
-    .queue-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface2); }
-    .queue-emoji { font-size: 1.4rem; }
-    .queue-info { flex: 1; min-width: 0; }
-    .queue-name { font-size: 0.88rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .queue-start { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .queue-list, .results-list { display: flex; flex-direction: column; gap: 16px; }
+    .item-row { 
+      display: flex; justify-content: space-between; align-items: center; 
+      padding: 16px; border-radius: 12px; 
+      background: rgba(255, 255, 255, 0.03); border: 0.5px solid transparent; 
+      transition: var(--transition);
+    }
+    .item-row:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--border); }
+    .item-info { flex: 1; }
+    .item-row-title { font-size: 1rem; font-weight: 600; color: white; }
+    .item-row-meta { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+    .item-row-side { font-size: 0.95rem; font-weight: 600; color: white; }
 
-    .results-list { display: flex; flex-direction: column; gap: 8px; }
-    .result-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface2); border-left: 3px solid var(--gold); }
-    .result-emoji { font-size: 1.2rem; }
-    .result-info { flex: 1; min-width: 0; }
-    .result-name { font-size: 0.82rem; font-weight: 600; }
-    .result-winner { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-    .result-bid { font-size: 0.85rem; font-weight: 700; color: var(--gold); white-space: nowrap; }
-
-    .empty-state { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 12px 0; }
-
-    /* Checkpoint panel */
-    .cp-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
-    .cp-row:last-child { border-bottom: none; }
-    .cp-key { font-size: 0.75rem; color: var(--muted); }
-    .cp-val { font-size: 0.78rem; font-weight: 600; }
-    .cp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%%; margin-right: 5px; background: var(--green); }
+    .cp-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; }
+    .cp-key { font-size: 0.8rem; color: var(--muted); }
+    .cp-val { font-size: 0.85rem; font-weight: 500; color: white; }
+    .cp-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 8px; background: var(--green); }
     .cp-dot.stale { background: var(--yellow); }
-    .cp-dot.none { background: var(--muted); }
+    .cp-dot.none { background: var(--border); }
 
-    .admin-form { display: flex; flex-direction: column; gap: 10px; }
-    .admin-actions { display: flex; gap: 8px; }
-    .btn.secondary {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 10px 14px;
-      font-size: 0.9rem;
-    }
-    .btn.small {
-      padding: 10px 14px;
-      font-size: 0.9rem;
-    }
-    .admin-feedback {
-      min-height: 18px;
-      font-size: 0.82rem;
-      font-weight: 500;
-    }
+    .admin-form { display: flex; flex-direction: column; gap: 16px; }
+    .btn.secondary { background: rgba(255, 255, 255, 0.1); color: white; border: 0.5px solid var(--border); }
+    .btn.secondary:hover { background: rgba(255, 255, 255, 0.15); }
+    .btn.small { padding: 10px 20px; font-size: 0.9rem; }
+    .empty-state { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 24px 0; }
+
   </style>
 </head>
 <body>
 <header>
-  <div class="logo">Auction<span>House</span></div>
-  <div class="node-badge">%s</div>
+  <div class="brand">
+    <div class="logo">Auction House</div>
+  </div>
+  <div class="node-info">
+    <div id="leaderBadge" class="leader-badge">Leader</div>
+  </div>
 </header>
 
 <div class="layout">
   <div id="mainCol">
     <div id="currentCard" class="current-card">
-      <div>
-        <div class="item-emoji" id="itemEmoji">⏳</div>
+      <div class="item-header">
         <div class="item-name" id="itemName">Loading…</div>
         <div class="item-desc" id="itemDesc"></div>
       </div>
       <div class="countdown-wrap">
         <div class="countdown-label">Time Remaining</div>
-        <div class="countdown green" id="countdown">--:--</div>
+        <div class="countdown" id="countdown">--:--</div>
         <div class="progress-bar-wrap">
-          <div class="progress-bar" id="progressBar" style="width:100%%;background:var(--green);"></div>
+          <div class="progress-bar" id="progressBar" style="width:100%%; background:var(--green);"></div>
         </div>
       </div>
       <div class="bid-info">
@@ -219,47 +220,49 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
       </div>
       <div class="bid-form">
         <div class="input-row">
-          <input type="text" id="bidderName" placeholder="Your name" autocomplete="off">
-          <input type="number" id="amount" placeholder="Bid amount ($)" min="1" autocomplete="off">
-          <button class="btn" id="bidBtn" onclick="submitBid()">Bid</button>
+          <input type="text" id="bidderName" placeholder="Your Name" autocomplete="off">
+          <input type="number" id="amount" placeholder="Bid Amount ($)" min="1" autocomplete="off">
+          <button class="btn" id="bidBtn" onclick="submitBid()">Place Bid</button>
         </div>
         <div id="feedback"></div>
       </div>
     </div>
-    <div class="panel" id="adminPanel" style="margin-top:20px;display:none;">
-      <div class="panel-title">Admin</div>
+
+    <div class="panel" id="adminPanel" style="margin-top:24px; display:none;">
+      <div class="panel-title">Admin Controls</div>
       <div class="admin-form">
-        <input type="text" id="newItemName" placeholder="Item name" autocomplete="off">
+        <input type="text" id="newItemName" placeholder="New Item Name" autocomplete="off">
         <input type="text" id="newItemDesc" placeholder="Description" autocomplete="off">
         <div class="input-row">
-          <input type="number" id="newItemPrice" placeholder="Starting price" min="1" autocomplete="off">
+          <input type="number" id="newItemPrice" placeholder="Starting Price ($)" min="1" autocomplete="off">
           <input type="number" id="newItemDuration" placeholder="Duration (sec)" min="10" autocomplete="off">
         </div>
-        <button class="btn small" id="addItemBtn" onclick="addItem()">Add Item</button>
-        <div class="admin-actions">
-          <button class="btn secondary" id="startAuctionBtn" onclick="auctionControl('start')">Start</button>
-          <button class="btn secondary" id="stopAuctionBtn" onclick="auctionControl('stop')">Stop</button>
-          <button class="btn secondary" id="restartAuctionBtn" onclick="auctionControl('restart')">Restart</button>
+        <button class="btn small" id="addItemBtn" onclick="addItem()">Add to Queue</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn secondary small" id="startAuctionBtn" onclick="auctionControl('start')">Start</button>
+          <button class="btn secondary small" id="stopAuctionBtn" onclick="auctionControl('stop')">Stop</button>
+          <button class="btn secondary small" id="restartAuctionBtn" onclick="auctionControl('restart')">Restart</button>
         </div>
         <div id="adminFeedback" class="admin-feedback"></div>
       </div>
     </div>
+
     <div id="endedBanner" class="ended-banner" style="display:none">
-      🎉 Auction Complete — All items sold!
+      Auction Complete — All items sold
     </div>
   </div>
 
   <div class="sidebar">
     <div class="panel">
-      <div class="panel-title">⬇ Up Next</div>
+      <div class="panel-title">Up Next</div>
       <div class="queue-list" id="queueList"><div class="empty-state">Queue loading…</div></div>
     </div>
     <div class="panel">
-      <div class="panel-title">🏆 Sold</div>
+      <div class="panel-title">Sold</div>
       <div class="results-list" id="resultsList"><div class="empty-state">No items sold yet</div></div>
     </div>
     <div class="panel">
-      <div class="panel-title">💾 Checkpoint</div>
+      <div class="panel-title">Checkpoint</div>
       <div id="cpPanel">
         <div class="cp-row"><span class="cp-key">Status</span><span class="cp-val" id="cpStatus"><span class="cp-dot none"></span>None</span></div>
         <div class="cp-row"><span class="cp-key">Saved at</span><span class="cp-val" id="cpTime">—</span></div>
@@ -333,11 +336,13 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
       document.getElementById('endedBanner').style.display = 'none';
 
       const item = d.CurrentItem;
-      document.getElementById('itemEmoji').textContent = item.Emoji;
       document.getElementById('itemName').textContent = item.Name;
       document.getElementById('itemDesc').textContent = item.Description;
       document.getElementById('highestBid').textContent = '$' + d.CurrentHighestBid;
       document.getElementById('winner').textContent = d.CurrentWinner || '—';
+
+      // Leader indicator
+      document.getElementById('leaderBadge').style.display = d.IsCoordinator ? 'inline-block' : 'none';
 
       if (d.DeadlineUnix && d.DeadlineUnix !== deadlineUnix) {
         startLocalTimer(d.DeadlineUnix, item.DurationSec);
@@ -352,12 +357,13 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     const el = document.getElementById('queueList');
     if (!items.length) { el.innerHTML = '<div class="empty-state">No more items</div>'; return; }
     el.innerHTML = items.map(function(it) {
-      return '<div class="queue-item">' +
-        '<div class="queue-emoji">' + it.Emoji + '</div>' +
-        '<div class="queue-info">' +
-          '<div class="queue-name">' + it.Name + '</div>' +
-          '<div class="queue-start">Starting at $' + it.StartingPrice + '</div>' +
-        '</div></div>';
+      return '<div class="item-row">' +
+        '<div class="item-info">' +
+          '<div class="item-row-title">' + it.Name + '</div>' +
+          '<div class="item-row-meta">' + it.Description + '</div>' +
+        '</div>' +
+        '<div class="item-row-side">$' + it.StartingPrice + '</div>' +
+        '</div>';
     }).join('');
   }
 
@@ -367,13 +373,12 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
     el.innerHTML = [...results].reverse().map(function(r) {
       var winnerText = r.Winner === 'No bids' ? 'Unsold' : ('Won by ' + r.Winner);
       var bidText = r.WinningBid > 0 ? ('$' + r.WinningBid) : '\u2014';
-      return '<div class="result-item">' +
-        '<div class="result-emoji">' + r.Item.Emoji + '</div>' +
-        '<div class="result-info">' +
-          '<div class="result-name">' + r.Item.Name + '</div>' +
-          '<div class="result-winner">' + winnerText + '</div>' +
+      return '<div class="item-row">' +
+        '<div class="item-info">' +
+          '<div class="item-row-title">' + r.Item.Name + '</div>' +
+          '<div class="item-row-meta">' + winnerText + '</div>' +
         '</div>' +
-        '<div class="result-bid">' + bidText + '</div>' +
+        '<div class="item-row-side">' + bidText + '</div>' +
       '</div>';
     }).join('');
   }
@@ -525,7 +530,7 @@ func (n *Node) handleUI(w http.ResponseWriter, r *http.Request) {
   fetchCheckpoint();
 </script>
 </body>
-</html>`, n.ID, n.ID)
+</html>`, n.ID)
 
 	w.Header().Set("Content-Type", "text/html")
 	_, _ = w.Write([]byte(html))

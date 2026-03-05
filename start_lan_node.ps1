@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
 # ── CONFIG: change $MyNodeId per laptop ──────────────────────────────────
-$MyNodeId = 3       # <-- Set to 1, 2, 3, or 4 depending on the laptop
+$MyNodeId = 4       # <-- Set to 1, 2, 3, or 4 depending on the laptop
 
 $LanIPs = @{
     1 = '10.154.195.215'
