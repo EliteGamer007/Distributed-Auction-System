@@ -170,6 +170,7 @@ func (n *Node) Start() {
 	go n.abortStalePreparedTxns()
 	go n.periodicStateSync()
 	go n.runPeriodicCheckpointing()
+	go n.StartCLI()
 	log.Printf("Node %s listening on %s (UI at http://%s)\n", n.ID, n.Address, n.Address)
 }
 

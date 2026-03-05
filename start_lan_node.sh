@@ -10,7 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── CONFIG: change MyNodeId per laptop ──────────────────────────────────
-MyNodeId=4       # <-- Set to 1, 2, 3, or 4 depending on the laptop
+MyNodeId=${1:-1}  # <-- Passed as argument, or default to 1
+# Remove the old hardcoded line
 
 declare -A LanIPs
 LanIPs[1]='10.12.234.8'
