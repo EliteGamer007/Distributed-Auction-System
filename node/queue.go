@@ -92,7 +92,7 @@ func (n *Node) runItemTimer(itemID string, deadlineUnix int64) {
 	}
 
 	n.Queue.mu.Lock()
-	if n.Queue.CurrentItem == nil || n.Queue.CurrentItem.ID != itemID || n.Queue.DeadlineUnix != deadlineUnix {
+	if !n.Queue.Active || n.Queue.CurrentItem == nil || n.Queue.CurrentItem.ID != itemID || n.Queue.DeadlineUnix != deadlineUnix {
 		n.Queue.mu.Unlock()
 		return
 	}

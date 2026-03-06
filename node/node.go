@@ -91,7 +91,7 @@ func NewNode(id, address string, peers []string, rank int) *Node {
 			CurrentHighestBid: cp.CurrentHighestBid,
 			CurrentWinner:     cp.CurrentWinner,
 			DeadlineUnix:      cp.DeadlineUnix,
-			Active:            cp.Active,
+			Active:            false, // Force inactive on startup
 		}
 	} else {
 		queue = freshQueue()

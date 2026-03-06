@@ -11,8 +11,16 @@ import (
 
 // StartCLI starts a command-line interface for the node.
 func (n *Node) StartCLI() {
+	// Enable scrolling region for the rest of the terminal (line 3 onwards)
+	// \033[3;r : Set scrolling region from line 3 to bottom
+	fmt.Print("\033[H\033[2J") // Clear screen
+	fmt.Print("\033[3;r")      // Scrolling region: line 3 to bottom
+	fmt.Print("\033[3;1H")     // Move cursor to line 3, col 1
+
+	go n.startLiveStatus()
+
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("\n[%s] CLI Active. Type 'help' for commands.\n", n.ID)
+	fmt.Printf("[%s] CLI Active. Type 'help' for commands.\n", n.ID)
 	fmt.Print("> ")
 
 	for scanner.Scan() {
@@ -228,16 +236,9 @@ func (n *Node) handleCLIControl(action string) {
 	if !isLocalCoordinator {
 		if coordinatorAddress == "" {
 			fmt.Println("Election in progress...")
-			return
+		} else {
+			fmt.Println("Error: Only the Leader node can start/stop/restart the auction.")
 		}
-		var reply CoordinatorActionReply
-		err := n.callPeer(coordinatorAddress, "NodeRPC.SubmitAuctionControlToCoordinator",
-			AuctionControlArgs{Action: action}, &reply)
-		if err != nil {
-			fmt.Printf("Error forwarding to coordinator: %v\n", err)
-			return
-		}
-		fmt.Println(reply.Message)
 		return
 	}
 
@@ -252,4 +253,41 @@ func (n *Node) handleCLIControl(action string) {
 		accepted, message = n.restartAuctionAndBroadcast()
 	}
 	fmt.Printf("[%v] %s\n", accepted, message)
+}
+
+func (n *Node) startLiveStatus() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		snap := n.buildQueueSnapshot()
+
+		status := "INACTIVE"
+		if snap.Active {
+			status = "ACTIVE"
+		}
+
+		leader := "Follower"
+		if snap.IsCoordinator {
+			leader = "Leader"
+		}
+
+		item := "None"
+		bidInfo := ""
+		timeInfo := "0s"
+		if snap.CurrentItem != nil {
+			item = snap.CurrentItem.Name
+			bidInfo = fmt.Sprintf(" | $%d (%s)", snap.CurrentHighestBid, snap.CurrentWinner)
+			rem := snap.DeadlineUnix - time.Now().Unix()
+			if rem < 0 {
+				rem = 0
+			}
+			timeInfo = fmt.Sprintf("%ds", rem)
+		}
+
+		// Save cursor, move to top-left, clear line, print bold status bar, restore cursor
+		// \033[1;37;44m : Bold (1), White (37), Blue BG (44)
+		fmt.Printf("\033[s\033[1;1H\033[1;37;44m\033[K [%s] %s | %s | Item: %s%s | Time: %s \033[0m\033[u",
+			n.ID, status, leader, item, bidInfo, timeInfo)
+	}
 }
